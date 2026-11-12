@@ -1,4 +1,5 @@
 import "./config.js";
+import { scanPendingArtifact } from "./artifact-scanner.js";
 import pg from "pg";
 import { pathToFileURL } from "node:url";
 export async function deliver(pool: pg.Pool) {
@@ -45,6 +46,7 @@ if (
   while (!stopped) {
     try {
       await deliver(pool);
+      await scanPendingArtifact(pool);
     } catch {
       console.error("Outbox delivery failed; retrying");
     }

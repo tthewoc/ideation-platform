@@ -351,6 +351,8 @@ export async function installApi(app: FastifyInstance) {
   app.post("/v1/workspaces/:w/objects", async (req, reply) =>
     mutation(req, reply, async (c, w) => {
       const b = createObject.parse(req.body);
+      if (b.type === "artifact")
+        fail(422, "registration_required", "Use artifact registration");
       await validateReferences(c, w, b.type, b.content, false);
       const r = await c.query(
         "INSERT INTO objects(workspace_id,type,author_id) VALUES($1,$2,actor()) RETURNING *",
@@ -421,17 +423,23 @@ export async function installApi(app: FastifyInstance) {
       url: `/v1/workspaces/:w/objects/:id/${correction ? "corrections" : "draft"}`,
       handler: async (req, reply) =>
         mutation(req, reply, async (c, w) => {
-          const o = await editable(c, req, w),
-            b = z
-              .object({
-                content: z.unknown(),
-                reason: z.string().trim().min(1).max(4000),
-                ...(correction
-                  ? { base_revision: z.number().int().positive() }
-                  : {}),
-              })
-              .strict()
-              .parse(req.body);
+          const o = await editable(c, req, w);
+          if (o.type === "artifact")
+            fail(
+              409,
+              "immutable_artifact",
+              "Register a new artifact for changed bytes or metadata",
+            );
+          const b = z
+            .object({
+              content: z.unknown(),
+              reason: z.string().trim().min(1).max(4000),
+              ...(correction
+                ? { base_revision: z.number().int().positive() }
+                : {}),
+            })
+            .strict()
+            .parse(req.body);
           const body = content(o.type, b.content);
           await validateReferences(c, w, o.type, body, false);
           const d = await c.query(
@@ -487,6 +495,18 @@ export async function installApi(app: FastifyInstance) {
         "SELECT content FROM revisions WHERE workspace_id=$1 AND object_id=$2 AND revision=$3",
         [w, o.id, b.revision],
       );
+      if (o.type === "artifact") {
+        const a = await c.query(
+          "SELECT state FROM artifacts WHERE workspace_id=$1 AND object_id=$2",
+          [w, o.id],
+        );
+        if (a.rows[0]?.state !== "available")
+          fail(
+            409,
+            "artifact_unavailable",
+            "Artifact must be available before publication",
+          );
+      }
       const body = content(o.type, r.rows[0].content);
       await validateReferences(c, w, o.type, body, true);
       const revision = await append(

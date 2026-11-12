@@ -86,12 +86,20 @@ export async function validateReferences(
     await pinned(c, w, b.claim_ref, ["claim", "hypothesis"], publishing);
     await pinned(c, w, b.evidence_ref, ["evidence"], publishing);
   }
-  if (type === "result" && b.artifact_refs.length)
-    fail(
-      422,
-      "artifacts_unavailable",
-      "Artifact registration arrives in the research slice",
-    );
+  if (type === "result")
+    for (const r of b.artifact_refs) {
+      const pin = await pinned(c, w, r, ["artifact"], publishing);
+      const a = await c.query(
+        "SELECT state FROM artifacts WHERE workspace_id=$1 AND object_id=$2",
+        [w, r.id],
+      );
+      if (a.rows[0]?.state !== "available" || pin.validity !== "active")
+        fail(
+          422,
+          "artifact_unavailable",
+          "Referenced artifacts must be scanned and available",
+        );
+    }
 }
 export async function freshness(c: PoolClient, w: string, r: Ref) {
   const q = await c.query(
@@ -171,6 +179,7 @@ export async function insertEdge(
         "Object types do not match this relationship",
       );
   }
+  if (body.type === "depends_on") await mutableDependencies(c, w, body.from.id);
   await cycleGuard(c, w, body.type, body.from, body.to);
   let edge;
   if (assessment)
@@ -275,4 +284,19 @@ export async function revisionData(c: PoolClient, w: string, r: Ref) {
     [w, r.id, r.revision],
   );
   return q.rows[0] ?? missing();
+}
+
+export async function mutableDependencies(
+  c: PoolClient,
+  w: string,
+  id: string,
+) {
+  const t = (
+    await c.query(
+      "SELECT status FROM tasks WHERE workspace_id=$1 AND object_id=$2",
+      [w, id],
+    )
+  ).rows[0];
+  if (t && !["open", "assigned"].includes(t.status))
+    fail(409, "dependencies_frozen", "Dependencies are fixed once work starts");
 }

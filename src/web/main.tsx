@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import { StructuredEditor } from "./StructuredEditor";
+import { Research } from "./Research";
 import { GraphReview } from "./GraphReview";
 import { KnowledgeDetails } from "./KnowledgeDetails";
 type Atom = {
@@ -75,7 +76,11 @@ function App() {
         P([]);
         PI({});
       }
-      if (res.status === 412 && selected) {
+      if (
+        res.status === 412 &&
+        selected &&
+        path.startsWith(`${base}/objects/`)
+      ) {
         const latest = await fetch(`${base}/objects/${selected.id}`);
         if (latest.ok) setConflict(await latest.json());
       }
@@ -512,13 +517,14 @@ function App() {
                     <h3>{selected.type === "claim" ? "Scope" : "Context"}</h3>
                     <p>{selected.content.scope ?? selected.content.context}</p>
                     <div className="actions">
-                      {selected.author_id === session.user.id && (
-                        <button onClick={() => edit(selected)}>
-                          {selected.has_draft
-                            ? "Edit draft"
-                            : "Create correction"}
-                        </button>
-                      )}
+                      {selected.author_id === session.user.id &&
+                        selected.type !== "artifact" && (
+                          <button onClick={() => edit(selected)}>
+                            {selected.has_draft
+                              ? "Edit draft"
+                              : "Create correction"}
+                          </button>
+                        )}
                       <button
                         onClick={() =>
                           run(async () =>
@@ -610,6 +616,19 @@ function App() {
                 )}
               </section>
             </div>
+            <Research
+              key={`research-${workspace}`}
+              base={base}
+              api={api}
+              objects={atoms}
+              userId={session.user.id}
+              onChange={refresh}
+              onSelect={(o) => {
+                O(o);
+                E(false);
+                H([]);
+              }}
+            />
             <GraphReview
               key={workspace}
               base={base}

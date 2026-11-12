@@ -1,5 +1,8 @@
 # Slice 2: graph, assessments and independent review
 
+Historical slice 2 checkpoint. Research and artifact workflows are now documented
+in [slice 3](19_RESEARCH_ARTIFACT_IMPLEMENTATION.md).
+
 The user's “Proceed with next slice” instruction authorizes this implementation.
 This extends the slice 1 checkpoint in document 17 and the slice 2 scope in document
 14. Changes are local; implementation does not publish a deployment or Git commit.

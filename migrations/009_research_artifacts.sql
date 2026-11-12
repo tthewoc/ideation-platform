@@ -1,0 +1,52 @@
+ALTER TABLE objects DROP CONSTRAINT objects_type_check;
+ALTER TABLE objects ADD CHECK(type IN ('claim','observation','hypothesis','method','result','evidence','assessment','thesis','research_task','artifact'));
+CREATE TABLE artifacts(workspace_id uuid NOT NULL,object_id uuid PRIMARY KEY,kind text NOT NULL CHECK(kind IN ('digital','physical')),state text NOT NULL CHECK(state IN ('registered','quarantined','scanning','available','rejected','restricted','retracted')),version integer NOT NULL DEFAULT 1,storage_key uuid UNIQUE,scan_token uuid,lease_until timestamptz,attempts integer NOT NULL DEFAULT 0,scan_verdict text,scanner_version text,scanned_at timestamptz,created_at timestamptz NOT NULL DEFAULT now(),FOREIGN KEY(workspace_id,object_id) REFERENCES objects(workspace_id,id));
+CREATE TABLE artifact_events(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),workspace_id uuid NOT NULL,object_id uuid NOT NULL REFERENCES artifacts(object_id),state text NOT NULL,reason text NOT NULL,actor_id uuid REFERENCES users,created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE tasks(workspace_id uuid NOT NULL,object_id uuid PRIMARY KEY,revision integer NOT NULL,status text NOT NULL CHECK(status IN ('open','assigned','in_progress','submitted','returned_for_revision','completed','cancelled')),assignee_id uuid REFERENCES users,result_id uuid,result_revision integer,version integer NOT NULL DEFAULT 1,FOREIGN KEY(workspace_id,object_id,revision) REFERENCES publications(workspace_id,object_id,revision),FOREIGN KEY(workspace_id,result_id,result_revision) REFERENCES publications(workspace_id,object_id,revision));
+CREATE TABLE task_invitations(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),workspace_id uuid NOT NULL,task_id uuid NOT NULL REFERENCES tasks(object_id),assignee_id uuid NOT NULL REFERENCES users,proposed_by uuid NOT NULL REFERENCES users,state text NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','accepted','declined','withdrawn')),purpose text NOT NULL,reason text,version integer NOT NULL DEFAULT 1,expires_at timestamptz NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
+CREATE UNIQUE INDEX task_pending_invitation ON task_invitations(task_id) WHERE state='pending';
+CREATE TABLE task_events(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),workspace_id uuid NOT NULL,task_id uuid NOT NULL REFERENCES tasks(object_id),actor_id uuid NOT NULL REFERENCES users,action text NOT NULL,reason text NOT NULL,details jsonb NOT NULL DEFAULT '{}',created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE task_results(workspace_id uuid NOT NULL,task_id uuid NOT NULL REFERENCES tasks(object_id),result_id uuid PRIMARY KEY,submitted_by uuid NOT NULL REFERENCES users,FOREIGN KEY(workspace_id,result_id) REFERENCES objects(workspace_id,id));
+DO $$ DECLARE t text; BEGIN
+ FOREACH t IN ARRAY ARRAY['artifacts','artifact_events','tasks','task_invitations','task_events','task_results'] LOOP
+ EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY',t); EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY',t);
+ END LOOP;
+END $$;
+CREATE POLICY artifact_read ON artifacts FOR SELECT TO ideator_app USING(member(workspace_id) AND EXISTS(SELECT 1 FROM objects WHERE id=object_id));
+CREATE POLICY artifact_create ON artifacts FOR INSERT TO ideator_app WITH CHECK(member(workspace_id) AND object_author(workspace_id,object_id));
+CREATE POLICY artifact_change ON artifacts FOR UPDATE TO ideator_app USING(member(workspace_id) AND (object_author(workspace_id,object_id) OR has_role(workspace_id,'moderator')));
+CREATE POLICY artifact_events_read ON artifact_events FOR SELECT TO ideator_app USING(member(workspace_id) AND EXISTS(SELECT 1 FROM objects WHERE id=object_id));
+CREATE POLICY artifact_events_create ON artifact_events FOR INSERT TO ideator_app WITH CHECK(member(workspace_id) AND actor_id=actor());
+CREATE POLICY task_read ON tasks FOR SELECT TO ideator_app USING(member(workspace_id));
+CREATE POLICY task_create ON tasks FOR INSERT TO ideator_app WITH CHECK(has_role(workspace_id,'coordinator'));
+CREATE POLICY task_change ON tasks FOR UPDATE TO ideator_app USING(member(workspace_id) AND (assignee_id=actor() OR object_author(workspace_id,object_id) OR has_role(workspace_id,'coordinator') OR has_role(workspace_id,'reviewer') OR EXISTS(SELECT 1 FROM task_invitations i WHERE i.task_id=object_id AND i.assignee_id=actor() AND i.state='pending' AND i.expires_at>now()))) WITH CHECK(member(workspace_id));
+CREATE POLICY invitation_read ON task_invitations FOR SELECT TO ideator_app USING(member(workspace_id));
+CREATE POLICY invitation_create ON task_invitations FOR INSERT TO ideator_app WITH CHECK(has_role(workspace_id,'coordinator') AND proposed_by=actor());
+CREATE POLICY invitation_change ON task_invitations FOR UPDATE TO ideator_app USING(member(workspace_id) AND (assignee_id=actor() OR has_role(workspace_id,'coordinator') OR object_author(workspace_id,task_id)));
+CREATE POLICY task_events_read ON task_events FOR SELECT TO ideator_app USING(member(workspace_id));
+CREATE POLICY task_events_create ON task_events FOR INSERT TO ideator_app WITH CHECK(member(workspace_id) AND actor_id=actor());
+CREATE POLICY task_results_read ON task_results FOR SELECT TO ideator_app USING(member(workspace_id) AND EXISTS(SELECT 1 FROM objects WHERE id=result_id));
+CREATE POLICY task_results_create ON task_results FOR INSERT TO ideator_app WITH CHECK(member(workspace_id) AND submitted_by=actor() AND object_author(workspace_id,result_id));
+GRANT SELECT,INSERT,UPDATE ON artifacts,tasks,task_invitations TO ideator_app;
+GRANT SELECT,INSERT ON artifact_events,task_events,task_results TO ideator_app;
+CREATE FUNCTION claim_artifact_scan() RETURNS TABLE(workspace_id uuid,object_id uuid,storage_key uuid,scan_token uuid,content jsonb) LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$ DECLARE a artifacts; ev uuid; BEGIN
+ SELECT * INTO a FROM artifacts x WHERE x.kind='digital' AND (x.state='quarantined' OR (x.state='scanning' AND x.lease_until<now())) ORDER BY x.created_at FOR UPDATE SKIP LOCKED LIMIT 1;
+ IF NOT FOUND THEN RETURN; END IF;
+ UPDATE artifacts x SET state='scanning',scan_token=gen_random_uuid(),lease_until=now()+interval '2 minutes',attempts=attempts+1,version=version+1 WHERE x.object_id=a.object_id RETURNING * INTO a;
+ INSERT INTO artifact_events(workspace_id,object_id,state,reason) VALUES(a.workspace_id,a.object_id,'scanning','Scanner lease acquired');
+ ev:=gen_random_uuid();
+ INSERT INTO audit_events(id,workspace_id,actor_id,action,target_id,request_id) SELECT ev,a.workspace_id,o.author_id,'artifact.scan_started',a.object_id,'artifact-worker' FROM objects o WHERE o.id=a.object_id;
+ INSERT INTO outbox(event_id,workspace_id,kind,payload) VALUES(ev,a.workspace_id,'artifact.scan_started',jsonb_build_object('target_id',a.object_id));
+ RETURN QUERY SELECT a.workspace_id,a.object_id,a.storage_key,a.scan_token,r.content FROM revisions r WHERE r.workspace_id=a.workspace_id AND r.object_id=a.object_id AND r.revision=1;
+END $$;
+CREATE FUNCTION finish_artifact_scan(o uuid,token uuid,verdict text,engine text) RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$ DECLARE a artifacts; ev uuid; BEGIN
+ IF verdict NOT IN ('clean','malware','integrity_mismatch','invalid_type','scanner_error') OR length(engine)>300 THEN RAISE invalid_parameter_value; END IF;
+ UPDATE artifacts SET state=CASE WHEN verdict='clean' THEN 'available' ELSE 'rejected' END,scan_verdict=verdict,scanner_version=engine,scanned_at=now(),scan_token=NULL,lease_until=NULL,version=version+1 WHERE object_id=o AND scan_token=token AND state='scanning' RETURNING * INTO a;
+ IF NOT FOUND THEN RETURN false; END IF;
+ INSERT INTO artifact_events(workspace_id,object_id,state,reason) VALUES(a.workspace_id,a.object_id,a.state,verdict);
+ ev:=gen_random_uuid();
+ INSERT INTO audit_events(id,workspace_id,actor_id,action,target_id,request_id) SELECT ev,a.workspace_id,x.author_id,'artifact.scan_completed',a.object_id,'artifact-worker' FROM objects x WHERE x.id=a.object_id;
+ INSERT INTO outbox(event_id,workspace_id,kind,payload) VALUES(ev,a.workspace_id,'artifact.scan_completed',jsonb_build_object('target_id',a.object_id)); RETURN true;
+END $$;
+REVOKE ALL ON FUNCTION claim_artifact_scan(),finish_artifact_scan(uuid,uuid,text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION claim_artifact_scan(),finish_artifact_scan(uuid,uuid,text,text) TO ideator_worker;

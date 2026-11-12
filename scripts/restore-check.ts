@@ -1,9 +1,11 @@
 import { config } from "dotenv";
 import { spawnSync } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { writeFile, readFile, mkdtemp, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import pg from "pg";
+import { join } from "node:path";
+import { readArtifact, digest } from "../src/server/artifact-storage.js";
 config({ path: ".local/dev.env", quiet: true });
 function docker(args: string[], input?: Buffer) {
   const r = spawnSync(
@@ -75,6 +77,12 @@ try {
       "submissions",
       "lineage",
       "equivalences",
+      "tasks",
+      "task_invitations",
+      "task_events",
+      "task_results",
+      "artifacts",
+      "artifact_events",
     ])
       assert.equal((await runtime.query(`SELECT * FROM ${table}`)).rowCount, 0);
     await runtime.query("ROLLBACK");
@@ -96,6 +104,27 @@ try {
       ).rowCount,
     );
     await runtime.query("ROLLBACK");
+    const blobBackup = await mkdtemp(".local/restore-artifacts-");
+    let restoredBlobs = 0;
+    try {
+      const blobs = await admin.query(
+        "SELECT a.storage_key,r.content FROM artifacts a JOIN revisions r ON r.object_id=a.object_id AND r.revision=1 WHERE a.storage_key IS NOT NULL",
+      );
+      for (const a of blobs.rows) {
+        const bytes = await readArtifact(a.storage_key);
+        const targetFile = join(blobBackup, a.storage_key);
+        await writeFile(targetFile, bytes, { mode: 0o600, flag: "wx" });
+        const restored = await readFile(targetFile);
+        assert.equal(digest(restored), a.content.sha256);
+        assert.equal(restored.length, a.content.byte_size);
+        restoredBlobs++;
+      }
+    } finally {
+      await rm(blobBackup, { recursive: true, force: true });
+    }
+    console.log(
+      `Restored and verified ${restoredBlobs} artifact blobs against immutable manifests.`,
+    );
     const original = (
       await admin.query("SELECT count(*)::int n FROM event_receipts")
     ).rows[0].n;

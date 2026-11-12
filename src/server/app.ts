@@ -8,6 +8,8 @@ import { ZodError } from "zod";
 import { installAuth } from "./auth.js";
 import { installApi } from "./api.js";
 import { installGraph } from "./graph.js";
+import { installArtifacts } from "./artifacts.js";
+import { installResearch } from "./research.js";
 import { installReviews } from "./reviews.js";
 import { HttpError } from "./db.js";
 import { config } from "./config.js";
@@ -87,6 +89,8 @@ export async function buildApp(logging = false) {
   await installApi(app);
   await installGraph(app);
   await installReviews(app);
+  await installArtifacts(app);
+  await installResearch(app);
   await app.register(staticFiles, { root: resolve("dist") });
   app.setNotFoundHandler((req, reply) =>
     req.url.startsWith("/v1")

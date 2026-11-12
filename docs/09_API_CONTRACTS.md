@@ -189,3 +189,8 @@ no invitation email is sent implicitly. Audit membership.granted/revoked, bump t
 policy version and invalidate sessions' cached workspace authorization. Prevent
 removing the final administrator. All object/project APIs enforce membership even
 when an active login session survives workspace revocation.
+
+## Implemented research contracts
+
+The concrete slice 3 routes, ETag scopes, upload limits and explicit result
+publication boundary are recorded in [the implementation contract](19_RESEARCH_ARTIFACT_IMPLEMENTATION.md).

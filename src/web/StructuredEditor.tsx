@@ -63,6 +63,7 @@ export function StructuredEditor({
     label: string,
     types: string[],
     multiple = false,
+    required = true,
   ) {
     const defaults = initial[name];
     return (
@@ -78,9 +79,24 @@ export function StructuredEditor({
                 ? `${defaults.id}:${defaults.revision}`
                 : ""
           }
-          required
+          required={required}
         >
           {!multiple && <option value="">Choose published knowledge</option>}
+          {(multiple ? (defaults ?? []) : defaults ? [defaults] : [])
+            .filter(
+              (r: any) =>
+                !objects.some(
+                  (o) => o.id === r.id && o.current_revision === r.revision,
+                ),
+            )
+            .map((r: any) => (
+              <option
+                key={`${r.id}:${r.revision}`}
+                value={`${r.id}:${r.revision}`}
+              >
+                Retained reference {r.id} · r{r.revision}
+              </option>
+            ))}
           {objects
             .filter((o) => o.current_revision && types.includes(o.type))
             .map((o) => (
@@ -132,7 +148,10 @@ export function StructuredEditor({
           method_ref: ref("method_ref"),
           outcome: str("outcome"),
           measurement_context: str("measurement_context"),
-          artifact_refs: [],
+          artifact_refs: f.getAll("artifact_refs").map((v) => {
+            const [id, revision] = String(v).split(":");
+            return { id, revision: Number(revision) };
+          }),
         });
       if (type === "hypothesis")
         Object.assign(c, {
@@ -275,7 +294,17 @@ export function StructuredEditor({
             </select>
           </label>
           {field("measurement_context", "Measurement context")}
-          <p>Artifact uploads and task execution arrive in the next slice.</p>
+          {selector(
+            "artifact_refs",
+            "Artifact revisions (optional)",
+            ["artifact"],
+            true,
+            false,
+          )}
+          <p>
+            Register and scan artifacts in Research & artifacts before
+            publication and reference.
+          </p>
         </>
       )}
       {type === "hypothesis" && (
@@ -312,8 +341,8 @@ export function StructuredEditor({
           {field("rationale", "Why this task is necessary")}
           {field("acceptance_criteria", "Acceptance criteria — one per line")}
           <p>
-            This defines the task and its graph dependencies. Assignment and
-            execution follow in slice 3.
+            Publish this definition, then open it on the research board for
+            consented assignment and execution.
           </p>
         </>
       )}

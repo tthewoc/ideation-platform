@@ -1,15 +1,16 @@
 # Ideator
 
 A TypeScript/Fastify/React knowledge workspace backed by PostgreSQL 17. The first
-two development slices support private drafts, immutable publication, project
+three development slices support private drafts, immutable publication, project
 reuse, typed graph relationships, scoped evidence assessments, independent review,
-and source freshness. Publication and scientific acceptance remain separate.
+source freshness, consented research tasks and scanned artifacts. Publication and scientific acceptance remain separate.
 
-See [slice 2 implementation and evidence](docs/18_GRAPH_REVIEW_IMPLEMENTATION.md).
+See [slice 3 implementation and evidence](docs/19_RESEARCH_ARTIFACT_IMPLEMENTATION.md).
 
 ## Local development
 
-Requires Node 24, npm and Docker Compose. Use the existing checkout.
+Requires Node 24, npm and Docker Compose. Local setup also pulls a pinned ClamAV
+image for artifact scans (allow 1.5 GiB of memory per scan). Use the existing checkout.
 
 ```sh
 npm ci

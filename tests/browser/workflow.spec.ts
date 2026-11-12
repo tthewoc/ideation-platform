@@ -3,6 +3,13 @@ import AxeBuilder from "@axe-core/playwright";
 test("OIDC, private draft, publication, correction history and project reuse", async ({
   page,
 }) => {
+  await page.context().addCookies([
+    {
+      name: "ideator_test_group",
+      value: test.info().testId.replaceAll(/[^a-zA-Z0-9_-]/g, ""),
+      url: "http://127.0.0.1:3001",
+    },
+  ]);
   await page.goto("/");
   await page.getByRole("link", { name: "Sign in", exact: true }).click();
   await page.getByRole("button", { name: "Continue as Alice" }).click();

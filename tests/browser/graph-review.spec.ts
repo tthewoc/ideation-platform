@@ -1,6 +1,13 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 async function login(page: Page, name: string) {
+  await page.context().addCookies([
+    {
+      name: "ideator_test_group",
+      value: test.info().testId.replaceAll(/[^a-zA-Z0-9_-]/g, ""),
+      url: "http://127.0.0.1:3001",
+    },
+  ]);
   await page.goto("/");
   await page.getByRole("link", { name: "Sign in", exact: true }).click();
   await page.getByRole("button", { name: `Continue as ${name}` }).click();

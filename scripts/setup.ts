@@ -19,3 +19,9 @@ const result = spawnSync(
 );
 if (result.status !== 0) process.exit(result.status ?? 1);
 await import("./migrate.js");
+const { SCANNER_IMAGE } = await import("../src/server/artifact-scanner.js");
+const scanner = spawnSync("docker", ["pull", SCANNER_IMAGE], {
+  stdio: "inherit",
+});
+if (scanner.status !== 0)
+  throw new Error("Could not prepare the local artifact scanner");

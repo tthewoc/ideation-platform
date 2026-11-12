@@ -11,7 +11,12 @@ import {
   etag,
 } from "./api.js";
 import { uuid, reason, type Ref } from "./schema.js";
-import { edgeInput, insertEdge, pinned } from "./graph-core.js";
+import {
+  edgeInput,
+  insertEdge,
+  pinned,
+  mutableDependencies,
+} from "./graph-core.js";
 const allTypes = [
   "supports",
   "contradicts",
@@ -62,6 +67,7 @@ export async function installGraph(app: FastifyInstance) {
         [w, id],
       );
       const e = q.rows[0] ?? missing();
+      if (e.type === "depends_on") await mutableDependencies(c, w, e.from_id);
       precondition(req, e.current_revision);
       if (e.assessment_id)
         fail(

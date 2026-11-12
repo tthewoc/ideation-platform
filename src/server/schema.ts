@@ -104,7 +104,41 @@ export const task = z
     method_ref: ref,
   })
   .strict();
+export const artifact = z.discriminatedUnion("kind", [
+  z
+    .object({
+      ...common,
+      kind: z.literal("digital"),
+      filename: z
+        .string()
+        .min(1)
+        .max(150)
+        .regex(/^[a-zA-Z0-9][a-zA-Z0-9._ -]*$/),
+      media_type: z.enum(["text/plain", "text/csv", "application/json"]),
+      byte_size: z
+        .number()
+        .int()
+        .min(1)
+        .max(1024 * 1024),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      license: reason,
+      retention_class: z.literal("workspace").default("workspace"),
+    })
+    .strict(),
+  z
+    .object({
+      ...common,
+      kind: z.literal("physical"),
+      license: reason,
+      custodian: reason,
+      location: reason,
+      access_protocol: reason,
+      integrity_metadata: reason,
+    })
+    .strict(),
+]);
 export const schemas = {
+  artifact,
   claim,
   observation,
   hypothesis,
@@ -116,6 +150,7 @@ export const schemas = {
   research_task: task,
 };
 export const objectType = z.enum([
+  "artifact",
   "claim",
   "observation",
   "hypothesis",

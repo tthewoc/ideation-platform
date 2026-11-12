@@ -7,6 +7,16 @@ export function KnowledgeDetails({
 }) {
   const c = object.content;
   const labels: Record<string, string> = {
+    kind: "Artifact kind",
+    license: "License / usage terms",
+    filename: "Filename",
+    sha256: "SHA-256 digest",
+    media_type: "Media type",
+    byte_size: "Size in bytes",
+    custodian: "Custodian",
+    location: "Physical location",
+    access_protocol: "Access protocol",
+    integrity_metadata: "Integrity and identification",
     proposition: "Proposition",
     prediction: "Prediction",
     falsification_criteria: "Falsification criteria",
@@ -85,6 +95,7 @@ export function KnowledgeDetails({
         ))}
       {[
         ...(c.source_refs ?? []),
+        ...(c.artifact_refs ?? []),
         ...(c.input_refs ?? []),
         ...(c.counterevidence_refs ?? []),
       ].map((r: any, i: number) => (

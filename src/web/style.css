@@ -393,3 +393,18 @@ caption {
     grid-template-columns: 1fr;
   }
 }
+
+.research {
+  margin: 2rem 0;
+  padding: 1.5rem;
+  background: white;
+  border: 1px solid #cbd5cf;
+  border-radius: 12px;
+}
+.research form {
+  margin: 1.2rem 0;
+}
+.research li {
+  margin: 0.5rem 0;
+  overflow-wrap: anywhere;
+}

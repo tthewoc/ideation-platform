@@ -41,13 +41,17 @@ const server = createServer(async (req, res) => {
         );
         if (!["Alice", "Bob", "Eve"].includes(name ?? ""))
           throw new Error("Unknown synthetic identity");
+        const group =
+          req.headers.cookie?.match(
+            /(?:^|; )ideator_test_group=([a-zA-Z0-9_-]{1,100})(?:;|$)/,
+          )?.[1] ?? "default";
         await provider.interactionFinished(
           req,
           res,
           {
             login: {
               accountId: process.env.IDEATOR_TEST_NAMESPACE
-                ? `${process.env.IDEATOR_TEST_NAMESPACE}:${name}`
+                ? `${process.env.IDEATOR_TEST_NAMESPACE}:${group}:${name}`
                 : name!,
             },
           },

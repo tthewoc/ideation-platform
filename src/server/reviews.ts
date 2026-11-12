@@ -371,6 +371,12 @@ export async function installReviews(app: FastifyInstance) {
       await pinned(c, w, target);
       const s = await statusRow(c, w, target);
       precondition(req, s.version);
+      if (o.type === "artifact" && b.axis === "validity")
+        fail(
+          422,
+          "artifact_transition_required",
+          "Use artifact access transitions to revoke downloads and invalidate references",
+        );
       if (b.axis === "review") {
         if (s.validity !== "active")
           fail(
