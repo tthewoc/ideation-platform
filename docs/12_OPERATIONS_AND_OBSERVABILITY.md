@@ -68,3 +68,17 @@ policy, repair and regression test. On model failure disable AI independently of
 registry operations. On stale projection rebuild from authoritative records;
 never modify accepted records to match a broken index. Reconcile worker events
 by event ID. Document pilot incident owner and escalation channel before launch.
+
+## Durability and projection readiness
+
+Acknowledge writes only after PostgreSQL commits with fsync and synchronous_commit
+on. RPO is a disaster-recovery budget, not permission to acknowledge uncommitted
+writes. If the deployment promises survival of primary loss, require synchronous
+replication and document its failure policy before advertising that guarantee.
+
+Run an outbox worker in slice 1 to demonstrate durable event delivery and replay;
+later consumers are added by feature. Report content/policy epoch lag, revoked
+input revalidation, vector generation coverage and rank quality per model version.
+Never return stale authorization on worker outage. Hybrid retrieval and sharing
+release checks include rebuilding projections during membership/grant revocation.
+Workspace release policy, MFA assurance and embargo checks belong in smoke tests.

@@ -44,9 +44,11 @@ explorations and prevent expensive degree-count side channels.
 
 Assessments and lineage pin revisions. Ordinary navigation can resolve latest
 permitted object revision but must label it separately from the historical input.
-A correction creates an outbox event and marks the source as having pending
-invalidation in the same transaction. Until propagation completes, derived views
-display freshness unknown. Workers walk reverse lineage with visited sets and
+A correction creates an outbox event and increments the workspace content epoch
+in the same transaction. Each derived view stores its last validated epoch. An
+epoch mismatch makes its freshness unknown at read time until revalidated; a flag
+on the source alone is insufficient to protect downstream views. Shared views
+track the epochs of every granted input workspace as well. Workers walk reverse lineage with visited sets and
 idempotent records; downstream interpretations become stale, never auto-corrected.
 Retraction shows a prominent source warning even before asynchronous propagation.
 
@@ -54,3 +56,17 @@ Equivalence candidates contain two IDs, reasons, origin and disposition. Approva
 adds a reversible equivalence assertion; physical merging/deletion is excluded
 from MVP. Projects and theses reference IDs: deleting a view deletes only its
 joins. Referenced published atoms use tombstones on withdrawal.
+
+## Publication and provenance guards
+
+Reference readability by the publishing author is insufficient: every intended
+recipient must be authorized for required provenance. For the first slice, public
+workspace content can reference only workspace-published revisions. Submitted
+private graphs are validated against the selected audience and published together
+in one transaction (BATCH-01). Never widen a source audience implicitly.
+
+Derivation cycle checks operate on pinned revision nodes, so r2 derived from r1
+of the same object is legal; self-derivation of the same revision is not. Task
+cycles operate on task identities. Supersession cycles operate on object identities.
+Assessment-derived support/contradiction edges cannot be independently edited:
+change the assessment revision and rebuild its graph projection.

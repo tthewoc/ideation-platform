@@ -32,9 +32,11 @@ Status: proposed; normative terms for this design set.
 | Supersession | Explicit replacement by a different object or revision |
 | Equivalence candidate | Reversible suggestion of shared identity; never an automatic merge |
 
-An object belongs to one policy workspace initially. It may be referenced by many
-projects and theses in that workspace. Cross-workspace reuse requires explicit
-sharing design and is not achieved by copying IDs into another workspace.
+An object has a home policy workspace, which administers access but does not define
+its identity. Its UUID remains stable across projects, theses and authorized sharing.
+Cross-workspace references use explicit revision grants, described in the data and
+security documents; they do not clone or transfer ownership of atoms. Slice 1
+enforces same-workspace references until those grant controls are implemented.
 
 Human, imported and machine authorship are separate origin categories. A human
 accepting machine content does not convert its origin to human. Visibility,

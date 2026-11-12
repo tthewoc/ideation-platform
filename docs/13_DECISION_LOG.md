@@ -10,7 +10,7 @@ Status: all decisions proposed for documentation review, not implementation appr
 | ADR-004 | Assessment is a first-class relation pinned to revisions | Simple supports/contradicts boolean edge cannot represent scope, method and disagreement | No expected simplification; evolve schema with versions |
 | ADR-005 | One workspace policy boundary initially | Immediate federated object ACLs enlarge inference and sharing risks | Reviewed cross-workspace access/revocation contract and adversarial fixtures |
 | ADR-006 | Explicit AI job pipeline, human publication | Autonomous planners increase budget/tool surface and evaluation cost | Measured missing utility plus independently passing planner safety evaluation |
-| ADR-007 | Lexical + graph search first | Vector similarity adds indexing/privacy work before labeled retrieval evidence | Corpus demonstrates improved recall without permission/precision regression |
+| ADR-007 | Lexical/graph first, required hybrid retrieval by slice 5 | Stage vector indexing to isolate policy and ranking risk while retaining brief §7 | Revise algorithm/model based on corpus evidence; dropping the channel requires an explicit scope decision |
 | ADR-008 | Separate publication from acceptance | Treating publish as scientific approval conflates distribution and knowledge status | Governance review only; never conflate truth with visibility |
 | ADR-009 | No aggregated confidence or identity auto-merge | Scores hide correlation; embeddings confuse relevance with equivalence | Validated domain calibration or reversible reviewed equivalence design |
 | ADR-010 | Node 24/TypeScript, Fastify, React, PostgreSQL 17 | Python/Django offers batteries; TS shares schemas and keeps initial stack small | Team expertise, official support lifetime or measured library needs change |
@@ -21,12 +21,12 @@ Status: all decisions proposed for documentation review, not implementation appr
 ## Ambiguities resolved by default
 
 The brief's shared atoms are reused across independent theses inside a workspace
-first, with cross-network discovery deferred. Human self-publication is allowed
+first, with permissioned cross-workspace discovery scheduled in slice 6. Human self-publication is allowed
 for unreviewed ordinary observations/claims; reviewed acceptance and consequential
 AI mutations require a distinct reviewer. A claim correction creates a new
 revision and freshness warning rather than erasing the old statement. Public
-discovery, global reputation, legal trust scores and automatic routing are excluded
-from early MVP. These choices are reversible scope defaults, not hidden requirements.
+discovery and embargo controls arrive in slice 6. Global reputation, legal trust
+scores and automatic routing remain excluded from early MVP. These choices are reversible scope defaults, not hidden requirements.
 
 ## Questions that remain before production
 
@@ -36,3 +36,18 @@ workspace content? What spending/support budgets and abuse escalation process ar
 approved? Who approves sensitive research routing? None requires secrets in chat.
 First-slice local implementation can proceed after documentation approval using
 synthetic users and a test identity provider; production and AI enablement cannot.
+
+## Specification review corrections
+
+ADR-005 limits the first slice, not stable object identity or target reuse across
+workspaces. Add revision grants, audience intersection and revocation tests before
+sharing. External federation transport remains deferred; in-installation discovery
+is required. Capability matching is scheduled rather than removed from scope.
+
+ADR-014: acceptance and publication are separate transactions. This prevents an
+independent review decision from silently changing distribution and allows embargo
+and batch validation at publication time. ADR-015: use draft pointers plus immutable
+publication records so a correction draft cannot replace the published projection.
+ADR-016: epoch-based synchronous freshness/access checks protect readers while
+asynchronous invalidation/cache work is pending. These corrections address concrete
+contradictions found in review; they do not record human implementation approval.

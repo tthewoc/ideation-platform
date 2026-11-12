@@ -33,11 +33,13 @@ human disposition. Version the provider adapter; use a deterministic fake in CI
 and a separately permissioned live evaluation environment. Do not put provider
 secrets in the client or repository. External URL browsing is disabled initially.
 
-States: queued → running → validating → awaiting_review; running/validating may
-end failed, cancelled or timed_out. Awaiting review becomes accepted, rejected or
-deferred. Acceptance uses the ordinary publication transaction and reauthorizes
-all inputs. Cancellation races cannot publish a proposal: publication checks job
-state and policy again. Deferred proposals remain private and expire under policy.
+Run states: queued → running → validating → succeeded; any nonterminal state may
+end failed, cancelled or timed_out. A successful run creates a separate proposal
+with pending/accepted/rejected/deferred/needs_evidence disposition. Acceptance
+records review only; explicit publication separately reauthorizes all inputs.
+Cancellation races cannot publish a proposal: publication checks run completion,
+proposal disposition and policy again. Deferred proposals remain private and
+expire under policy.
 
 Initial limits: 20 retrieved objects, 16,000 input tokens, 2,000 output tokens,
 60-second job deadline and one retry for transient errors within the same budget.
@@ -47,8 +49,8 @@ dispatch. Honor Retry-After; no retries for schema or authorization failures.
 
 ## Retrieval and controls
 
-Use permission-scoped lexical search and bounded graph traversal. Add vector
-similarity only when labeled retrieval evaluation demonstrates benefit; keep
+Combine permission-scoped lexical search, bounded graph traversal and vector
+similarity for the target workflow. Validate each channel and fused ranking; keep
 indexes rebuildable and filter before reranking and again before prompt creation.
 Retrieve challenges and contradictory assessments alongside support. Similarity
 does not establish novelty, equivalence or truth. User documents are quoted data,
@@ -59,3 +61,27 @@ permission checks, adjudicated attribution and utility scores, hostile-content
 tests, cancellation and budget tests. Every model/prompt upgrade reruns the same
 versioned corpus. A failing permission case disables deployment regardless of
 average quality. A declined proposal changes no accepted graph state.
+
+## Formalisation and matching outputs
+
+Formalisation returns separately typed claims, assumptions, at least one alternative
+hypothesis or an explicit insufficiency reason, research questions, ethical
+constraints, success criteria, methods and justified tasks. Map each statement to
+original turn/input revisions or label it inference. Clarification requests explain
+which unresolved field blocks a useful next step; do not force all fields before
+partial save. Linking/synthesis includes novelty comparison against permitted
+inputs and candidate relationships only, with requests for further evidence as a
+first-class review decision.
+
+Capability suggestions contain provider/capability refs, required versus matched
+qualifications, availability, location, cost, conflicts, access restrictions,
+ranking rationale and unknowns. Permission and availability are hard filters;
+unknown qualification/cost blocks automatic recommendation as eligible. Human
+coordinators can override ranking with recorded reasons, not override access or
+provider consent. Provider decline has no adverse reputation inference.
+
+Vector projections store object/revision, embedding model/version and policy epoch;
+re-embedding creates a new projection generation. Rerank authorized candidates
+using provenance and domain labels; reject stale permissions before returning
+results or sending prompts. Disable the feature on policy failures; record a
+quality shortfall as a release blocker for the relevant target slice.

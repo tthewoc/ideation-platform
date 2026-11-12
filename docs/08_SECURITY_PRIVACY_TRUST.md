@@ -54,3 +54,28 @@ Abuse reports can temporarily restrict distribution while retaining authorized
 appeal evidence. Log moderation reason and reviewer; allow appeal. Sensitive
 research routing and dual-use review are human decisions before external sharing.
 No automated capability matching is enabled until that policy is reviewed.
+
+## Submission, visibility and assurance
+
+Explicit submission grants named reviewers access to the selected immutable
+revision until disposition/withdrawal/expiry; it does not expose earlier drafts.
+Reject self-review when the reviewer is the author, proposal requester or an editor
+of the reviewed revision. Recheck conflicts on acceptance. An edited proposal needs
+a new submission. Production policy can require recent OIDC MFA via verified
+acr/amr/auth_time for membership and role changes; absence of required assurance
+fails closed. Local synthetic identity fixtures must be labelled development-only.
+
+Visibility is private, workspace, embargoed or public; publication is a separate
+axis. An embargo has an allowed reviewer set and release_not_before timestamp.
+Expiry makes release eligible but requires explicit human release and renewed
+rights/sensitivity checks. Public publication requires moderator release permission,
+license review and source-audience compatibility. Published public reads use a
+separate policy-limited endpoint; they do not open authenticated workspace routes.
+
+Cross-workspace reads require active source revision grants and active target
+membership. Every read/AI/export rechecks allowed_uses, expiry, revocation and
+source policy epoch. Revocation blocks derived views synchronously by their input
+grants; asynchronous jobs evict projections afterward. Queued notifications check
+recipient access at delivery. A signed artifact URL has a bounded residual access
+window (maximum 60 seconds); strict immediate-revocation deployments must proxy
+downloads with per-request policy checks. Do not promise recall of downloaded bytes.

@@ -23,7 +23,7 @@ flowchart LR
 ```
 
 The arrow here means information flow; persisted `derived_from` edges point from
-output to input. Human acceptance adds a disposition and published revision while
+output to input. Human acceptance adds a disposition; explicit publication creates a published revision while
 preserving the machine origin and exact input manifest. Prompt/model versions,
 tool calls, validation results and costs are recorded without sensitive prompt
 text in general logs. Restricted provenance stays restricted in exports and views.
@@ -56,3 +56,17 @@ On source access revocation, hide source content immediately, evict derived cach
 cancel queued external-model jobs and flag existing syntheses for policy review.
 Do not claim that already sent external inputs can be recalled. Provider retention
 contracts and user consent are prerequisites to external AI processing.
+
+## Audience inheritance and stale information
+
+Derived content inherits the intersection of its input use permissions by default.
+A wider audience needs explicit authorized release of all required inputs or a
+separately reviewed redacted derivative with its own permitted provenance. On
+revocation, policy epoch checks deny access to affected derived content before
+asynchronous cache eviction finishes; review is not a substitute for immediate
+read enforcement. Correlation metadata is itself permission-filtered.
+
+Accepted assessments require inspectable source provenance for their intended
+review audience. If provenance becomes unavailable, preserve the historical
+acceptance event but mark the current assessment restricted/unknown and block new
+acceptance until revalidated. Published validity and review history remain distinct.

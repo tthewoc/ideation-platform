@@ -28,7 +28,7 @@ have no active controls that imply working behavior.
 | Publication | Audience preview, confirmation, submitting, success, denial; repeated clicks deduplicate |
 | Knowledge detail | Lifecycle, review, origin, uncertainty, freshness, license and provenance always separate |
 | Graph | Loading, empty, truncated, inaccessible root, selection, filtered accessible neighbors; list alternative |
-| Job | Queued, running, validating, awaiting review, failed, cancelled, timed out; budget and cancellation visible |
+| Job | Queued, running, validating, succeeded, failed, cancelled, timed out; successful runs link to separate proposal review; budget and cancellation visible |
 | Review | Input missing/revoked, stale, accepted, rejected, deferred; disable acceptance when prerequisites fail |
 | Artifact | Quarantined, scanning, available, rejected, restricted; no unsafe preview |
 | Membership loss | Clear local cached content, show access change, preserve only permitted unsent input |
@@ -51,3 +51,25 @@ find a source, identify a contradiction, correct a stale draft and reuse an atom
 without copying. Record completion, errors and time; iterate with consented,
 anonymized observations. Automated accessibility scans supplement keyboard and
 screen-reader checks, not replace them.
+
+## Complete intake, sharing and matching journeys
+
+Conversational intake accepts fragments, keeps original turns and attachments,
+and distinguishes quoted user claims from machine inference. Partial save must
+work before required structured fields are complete. Undo moves the active turn
+pointer; it never deletes provenance. Preview shows the candidate object/edge
+batch, proposed audience and atomic publication result. Review adds request for
+further evidence alongside accept, edit, reject and defer.
+
+Formalisation presents assumptions and alternative hypotheses next to the preferred
+one, plus ethical constraints, success criteria and reasons for each task. An empty
+field is labelled unknown rather than filled with invented evidence. Capability
+matching displays availability, qualification, geography, permission, conflict and
+cost filters, explains recommendations, and supports provider decline and coordinator
+override with reasons. Assignment is a separate consent action.
+
+Sharing preserves the object's identity and displays its source workspace only
+when allowed. Embargoed content shows a release date to authorized readers, never
+an automatic publication countdown. The release preview lists the exact audience
+and permitted uses. Revocation removes inaccessible material from search, graph,
+exports and derived views; no hidden-node placeholders expose identities.

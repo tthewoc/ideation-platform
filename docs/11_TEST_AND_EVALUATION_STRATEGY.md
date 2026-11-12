@@ -49,14 +49,25 @@ records and crash-consistency at each transaction boundary.
 
 ## AI corpus and scoring
 
-Corpus v1 consists of T02/T04–T08/T10/T14 plus explicit paraphrases across ecology,
-materials, transport, clinical and software domains: 40 cases minimum, including
-at least 10 adversarial and 10 contradiction/null-result cases. Before enabling AI,
-commit actual input text, expected source IDs, forbidden claims and reviewer rubric
-as versioned fixtures; this document alone is not an executable corpus. Use two
-independent reviewers and adjudication for disagreements. Keep a held-out 20-case
-set outside prompt tuning and add every production failure as a regression case
-after removing personal data.
+A concrete 12-case design-time seed is stored in
+[evaluation/corpus-v1.json](evaluation/corpus-v1.json). It contains literal synthetic
+inputs, actions, expected behaviors, forbidden claims/actions, requirement IDs and
+failure interpretations. It is review data, not an executed benchmark. Expand it
+before AI release to at least 40 development cases, including 10 adversarial and
+10 contradiction/null-result cases; add a separate held-out 20-case set that is
+not used for prompt tuning. Preserve original cases/IDs and version changes.
+Use two independent reviewers with adjudication and add sanitized production
+failures as regressions. Domain cases do not establish scientific facts.
+
+Rubric: score relevance, testability and utility independently from 1 (unusable),
+2 (major corrections), 3 (usable after minor correction), 4 (useful as written),
+to 5 (useful with clearly justified alternatives). Each expected condition must
+be supported in the output; any forbidden claim/action fails the case. Attribution
+precision = correctly attributed assertions / all attributed assertions; unsupported
+rate = unsupported factual assertions / all factual assertions. Report zero
+denominators as not applicable, never a perfect score. Label conjectures separately
+from factual assertions. Recall uses the adjudicated relevant-link set; corpus
+novelty means absent from supplied inputs, not a worldwide novelty claim.
 
 Gate: 100% deterministic schema/permission/budget cases; no fabricated citations;
 attribution precision at least 95% on human-adjudicated assertions; unsupported
@@ -73,3 +84,19 @@ API tests, actual RLS tests, build/typecheck and accessibility checks. Later sli
 add their owned tests before enabling routes. Load and disaster recovery run in
 isolated environments; live models are optional in ordinary developer CI but
 mandatory for model release. Do not disable a failed test to establish readiness.
+
+## Added specification regression cases
+
+| Case / requirements | Setup | Action | Expected result / failure interpretation |
+|---|---|---|---|
+| T19 atomic graph; BATCH-01, TXN-01 | Accepted proposal with two atoms, edge and one inaccessible input | Publish batch, then retry after authorized repair | First attempt publishes nothing; valid retry commits one graph/audit/outbox set; failure is partial publication |
+| T20 review and assurance; IAM-02, GOV-01, MFA-01 | Private draft r1/r2, named reviewer, author as second reviewer, production MFA policy | Submit r2, inspect r1, self-approve and change roles without assurance | Only r2 granted; self-review denied; role change requires configured MFA; failure is disclosure or governance bypass |
+| T21 equivalence; EQV-01 | Two distinct atom IDs with similarity suggestion | Accept then revoke equivalence | Both identities/history remain, assertion reversibly changes, no duplicate evidence credit; failure is destructive merge |
+| T22 sharing and visibility; FED-01, VIS-01, PROV-02 | One granted revision in two workspaces, a derived synthesis, embargo and policy epoch | Revoke grant during vector search/export/AI; advance beyond embargo date | No revoked material/metadata returned, derived reads restricted, embargo does not auto-publish; failure is policy leakage |
+| T23 matching; MATCH-01, RES-01 | Task requirements and candidates with availability, location, cost, conflict and qualification differences | Rank, override rank, decline invitation and attempt assignment | Explain all constraints/unknowns, record override, never override access or consent; failure is unauthorized/unqualified routing |
+| T24 intake/formalisation; INTAKE-01, FORM-01 | Fragmentary original turn, clean attachment, subsequent edit and alternate hypothesis | Partial save, undo, formalise, request further evidence | Original remains, undo selects earlier state, conjecture/source mappings and all formalisation fields explicit; failure loses provenance or invents certainty |
+
+T19 is a slice-5 exit gate; T20's draft and assurance subsets start in slice 1,
+review subset in slice 2; T21 belongs to slice 2; T22/T23 to slice 6; T24 to slices
+5–6. T13 additionally compares permission-scoped lexical, graph, vector and fused
+retrieval and verifies embedding-model version rebuilds before slice 5 exits.

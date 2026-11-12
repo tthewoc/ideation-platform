@@ -34,8 +34,10 @@ invariants protect both human and machine requests.
 
 Non-goals: autonomous laboratory execution, patent advice, financial marketplaces,
 universal ontology, automatic equivalence merging, and automatic acceptance of AI
-claims. Public publishing, cross-organization federation, and model providers are
-later decisions, not requirements for the first slice.
+claims. Public publishing, permissioned cross-workspace discovery, capability
+matching and hybrid retrieval remain target requirements, delivered after the first
+slice. External federation protocols and provider selection require later decisions.
+Sequencing a capability does not remove it from the specification.
 
 ## Assumptions and measurement
 

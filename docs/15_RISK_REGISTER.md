@@ -16,7 +16,7 @@ statistics. Owners below are required responsibilities, not assigned people.
 | R09 | Privacy/license/retention conflict; medium / critical | Use rights metadata, provider contract review, erasure ledger, legal policy | Operator/legal reviewer; before real data |
 | R10 | Dense graph stalls database; medium / high | Depth/result/time budgets, indexed adjacency, dense fixtures | Database owner; slice 2/4 |
 | R11 | Coordinated review abuse; medium / high | Conflict disclosures, no self-review, moderation/appeal, rate limits | Governance owner; slice 3/pilot |
-| R12 | Architecture overreach delays usefulness; high / medium | Thin registry slice, one DB, deferred federation/vector/planners | Delivery owner; every slice review |
+| R12 | Architecture overreach delays usefulness; high / medium | Thin registry slice, one DB, staged hybrid retrieval/sharing, deferred external federation/planners | Delivery owner; every slice review |
 | R13 | Review burden and novice confusion; high / medium | Clear origin/review/freshness states, accessibility and moderated tests | UX owner; slice 6 |
 | R14 | Provider/model drift; high / high | Versioned adapters/corpus, budget and grounding gates, disable AI independently | AI owner; every model release |
 | R15 | Backup exists but cannot restore; medium / critical | Isolated measured recovery, erasure replay and artifact integrity checks | Operator; slice 1 and pilot |
@@ -28,3 +28,13 @@ external providers may retain already-dispatched data, and revoked users may hav
 copied authorized exports. Communicate these limits in policy and consent rather
 than promising technical recall. Revisit risks at each slice exit with evidence,
 owner assignment and accepted residual exposure. Unowned critical risks block pilot.
+
+## Risks identified in specification review
+
+| ID | Risk; likelihood / impact | Mitigation and detection | Owner / gate |
+|---|---|---|---|
+| R18 | Private review impossible or excessive reviewer access; high / high | Exact-revision submission grants, author/requester/editor conflict checks; T20 | Registry/security; slice 2 |
+| R19 | Partial AI graph publication; medium / high | Atomic object/edge/ref publication with rollback; T19 | API owner; slice 5 |
+| R20 | Grant revocation leaks derived content; medium / critical | Policy epochs and audience intersection, fail-closed read checks; T22 | Security; slice 6 |
+| R21 | Specification features silently deferred; high / high | Trace each required workflow to a concrete slice and test; separate first-slice scope from target scope | Delivery owner; design review |
+| R22 | Review corpus exists only as prose promises; high / medium | Versioned concrete seed inputs/expected outcomes and explicit expansion gate | AI owner; documentation and slice 5 |
