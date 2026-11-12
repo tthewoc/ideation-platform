@@ -58,13 +58,14 @@ Brief §§1–3 → vision/glossary/requirements; §§4–5 → data/graph/prove
 - Permanent provenance can conflict with erasure: retain minimal lawful metadata,
   apply tombstones/key destruction, replay erasure ledger after restoration.
 - Design targets can be mistaken for evidence: all model thresholds and SLOs are
-  provisional; no app, migration or application tests exist yet. A concrete design-time corpus
+  provisional; the first-slice implementation and executed checks are tracked in
+  [implementation evidence](17_IMPLEMENTATION_STATUS.md). A concrete design-time corpus
   seed now exists; model execution and release-size expansion remain outstanding.
 
 ## Review status and outstanding decisions
 
-The 17 required documents are drafted. No implementation approval has been
-recorded. Remaining production decisions concern operator, identity issuer,
+The 17 required documents were reviewed and the user subsequently authorized
+coding on 2026-11-12. Remaining production decisions concern operator, identity issuer,
 residency/retention, provider terms, budgets and governance ownership. Recommended
 approval scope is slice 1 with synthetic data and a local test identity provider.
 Review [decisions](13_DECISION_LOG.md), [risks](15_RISK_REGISTER.md) and
@@ -80,5 +81,5 @@ freshness, type schema coverage and the missing concrete evaluation seed.
 
 Documentation validation checks IDs, links and corpus consistency. It does not
 establish that PostgreSQL policies, APIs, model quality or browser behavior work.
-The design remains proposed, with the production questions listed above; publishing
-documents to GitHub is not an implementation approval event.
+The first-slice coding instruction supplies implementation approval; production
+questions remain open. Publishing documents alone was not that approval event.

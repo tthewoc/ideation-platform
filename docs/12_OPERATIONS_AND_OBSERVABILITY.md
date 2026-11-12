@@ -1,8 +1,8 @@
 # Operations and observability
 
-Status: proposed operational contract. No services, dependency manifests or CI
-exist yet. Commands must be implemented and verified after design approval; do
-not treat proposed commands as tested setup instructions.
+Status: proposed operational contract. The local first-slice workflow is now implemented; use the tested commands in
+[README](../README.md). Production operation and release targets below remain
+proposed until their individual checks are completed.
 
 ## Development and deployment
 

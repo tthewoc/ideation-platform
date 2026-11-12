@@ -1,6 +1,7 @@
 # System architecture
 
-Status: proposed stack, not installed or implemented. Use a modular monolith:
+Status: selected stack; first-slice implementation is described in
+[implementation status](17_IMPLEMENTATION_STATUS.md). Use a modular monolith:
 TypeScript on Node 24 LTS, React web UI, Fastify HTTP server, PostgreSQL 17, and
 an outbox worker from the same codebase. Pin exact packages and images when the
 documentation gate is approved. Use an OIDC provider rather than custom passwords.

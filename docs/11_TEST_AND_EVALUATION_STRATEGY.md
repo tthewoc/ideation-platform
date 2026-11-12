@@ -1,7 +1,7 @@
 # Test and evaluation strategy
 
-Status: test specification, not executed application tests. No application or
-test runner exists at design time. Tests below become release gates as their
+Status: test specification, not executed application tests. The original design preceded application code; current executed checks are
+recorded in [implementation status](17_IMPLEMENTATION_STATUS.md). Tests below become release gates as their
 owning slice is implemented. A zero-test run never constitutes validation.
 
 ## Layers and evidence

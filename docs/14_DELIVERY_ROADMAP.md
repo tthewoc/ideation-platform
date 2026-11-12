@@ -1,6 +1,7 @@
 # Delivery roadmap and approval gate
 
-Status: documentation review requested; **application implementation not started**.
+Status: the user authorized coding on 2026-11-12 after the documentation review.
+**Slice 1 development is underway.** See [implementation evidence](17_IMPLEMENTATION_STATUS.md).
 The greenfield brief §15 requires completed documents and explicit human approval
 before application code, migrations or scaffolding. Review this set as one design.
 
@@ -42,6 +43,6 @@ PostgreSQL, OIDC and bounded AI. Resolve conflicting feedback in ADRs and update
 traceability before implementation. Production questions in the decision log may
 remain deferred if slice 1 is explicitly approved for local synthetic development.
 
-Approval must identify this document set and authorize slice 1; the generic request
-to continue according to the brief does not eliminate its documentation review.
+The subsequent explicit instruction to commence coding authorizes slice 1 after
+the completed documentation review. Do not ask for that approval again.
 Do not treat creation of this packet or environment publication as design approval.
