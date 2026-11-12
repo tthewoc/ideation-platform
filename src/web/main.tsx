@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
+import { StructuredEditor } from "./StructuredEditor";
+import { GraphReview } from "./GraphReview";
+import { KnowledgeDetails } from "./KnowledgeDetails";
 type Atom = {
   id: string;
   type: string;
@@ -11,6 +14,10 @@ type Atom = {
   author_id: string;
   etag: string;
   has_draft: boolean;
+  review_state: string;
+  validity: string;
+  freshness: string;
+  state_etag: string;
 };
 function App() {
   const [session, S] = useState<any>(null),
@@ -24,6 +31,7 @@ function App() {
     [message, M] = useState(""),
     [busy, B] = useState(false),
     [editing, E] = useState(false),
+    [structured, setStructured] = useState(false),
     [kind, K] = useState("observation"),
     [title, T] = useState(""),
     [body, D] = useState(""),
@@ -106,6 +114,7 @@ function App() {
     O(null);
     H([]);
     E(false);
+    setStructured(false);
     refresh().catch((e) => M(e.message));
   }, [workspace]);
   async function run(fn: () => Promise<void>) {
@@ -120,6 +129,7 @@ function App() {
     }
   }
   function edit(atom?: Atom) {
+    setStructured(!!atom && !["claim", "observation"].includes(atom.type));
     setConflict(null);
     O(atom ?? null);
     K(atom?.type ?? "observation");
@@ -135,6 +145,7 @@ function App() {
     const value = await api(`${base}/objects/${atom.id}`);
     O(value);
     E(false);
+    setStructured(false);
     Q(false);
     H([]);
   }
@@ -178,6 +189,7 @@ function App() {
         });
     O(value);
     E(false);
+    setStructured(false);
     M("Private draft saved.");
     await refresh();
   }
@@ -288,6 +300,15 @@ function App() {
               <button className="primary" onClick={() => edit()}>
                 New observation or claim
               </button>
+              <button
+                onClick={() => {
+                  O(null);
+                  E(true);
+                  setStructured(true);
+                }}
+              >
+                New structured knowledge
+              </button>
             </div>
             <div className="layout">
               <section aria-label="Knowledge objects" className="list">
@@ -310,7 +331,9 @@ function App() {
                       {a.type} ·{" "}
                       {a.lifecycle === "draft"
                         ? "Private draft"
-                        : "Workspace published"}
+                        : a.lifecycle === "submitted"
+                          ? "Submitted for review"
+                          : "Workspace published"}
                     </span>
                     <strong>{a.content.title}</strong>
                     <span>{a.content.body.slice(0, 130)}</span>
@@ -331,7 +354,31 @@ function App() {
                 )}
               </section>
               <section className="detail" aria-label="Object details">
-                {editing ? (
+                {editing && structured ? (
+                  <StructuredEditor
+                    key={selected?.id ?? "new"}
+                    base={base}
+                    api={api}
+                    objects={atoms}
+                    conflict={conflict}
+                    onRebase={() => {
+                      O(conflict);
+                      setConflict(null);
+                    }}
+                    selected={selected}
+                    onCancel={() => {
+                      E(false);
+                      setStructured(false);
+                    }}
+                    onSaved={(o) => {
+                      O(o);
+                      E(false);
+                      setStructured(false);
+                      M("Private structured draft saved.");
+                      refresh();
+                    }}
+                  />
+                ) : editing ? (
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
@@ -439,12 +486,29 @@ function App() {
                       <span>
                         {selected.lifecycle === "draft"
                           ? "Private draft"
-                          : "Workspace published"}
+                          : selected.lifecycle === "submitted"
+                            ? "Submitted for review"
+                            : "Workspace published"}
                       </span>
                       <span>Human authored</span>
-                      <span>Unreviewed</span>
+                      <span>{selected.review_state}</span>
+                      <span>{selected.validity}</span>
+                      <span>Freshness: {selected.freshness}</span>
                     </div>
                     <p className="body">{selected.content.body}</p>
+                    <KnowledgeDetails
+                      object={selected}
+                      onReference={(r) =>
+                        run(async () => {
+                          O(
+                            await api(
+                              `${base}/objects/${r.id}?revision=${r.revision}`,
+                            ),
+                          );
+                          E(false);
+                        })
+                      }
+                    />
                     <h3>{selected.type === "claim" ? "Scope" : "Context"}</h3>
                     <p>{selected.content.scope ?? selected.content.context}</p>
                     <div className="actions">
@@ -546,6 +610,33 @@ function App() {
                 )}
               </section>
             </div>
+            <GraphReview
+              key={workspace}
+              base={base}
+              api={api}
+              objects={atoms}
+              selected={selected}
+              userId={session.user.id}
+              onSelect={(o) => {
+                O(o);
+                E(false);
+                H([]);
+              }}
+              onChange={async () => {
+                await refresh();
+                if (selected) {
+                  try {
+                    O(
+                      await api(
+                        `${base}/objects/${selected.id}?revision=${selected.revision}`,
+                      ),
+                    );
+                  } catch {
+                    O(null);
+                  }
+                }
+              }}
+            />
             <section className="projects">
               <h2>Projects</h2>
               <p>
@@ -671,7 +762,10 @@ function App() {
                     await api(
                       `${base}/memberships`,
                       "POST",
-                      { user_id: f.get("user"), roles: ["member"] },
+                      {
+                        user_id: f.get("user"),
+                        roles: ["member", ...f.getAll("roles")],
+                      },
                       `"${w.version}"`,
                     );
                     M("Member added.");
@@ -683,6 +777,17 @@ function App() {
                   Registered user ID
                   <input name="user" required />
                 </label>
+                <fieldset>
+                  <legend>Additional roles</legend>
+                  {["reviewer", "coordinator", "moderator", "admin"].map(
+                    (role) => (
+                      <label className="checkbox" key={role}>
+                        <input type="checkbox" name="roles" value={role} />
+                        {role}
+                      </label>
+                    ),
+                  )}
+                </fieldset>
                 <button>Add member</button>
               </form>
             </details>

@@ -6,8 +6,11 @@ export async function deliver(pool: pg.Pool) {
   try {
     await c.query("BEGIN");
     const rows = await c.query(
-      "SELECT event_id FROM outbox WHERE delivered_at IS NULL ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 100",
+      "SELECT event_id,workspace_id FROM outbox WHERE delivered_at IS NULL ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 100",
     );
+    for (const workspace of new Set(rows.rows.map((r) => r.workspace_id))) {
+      await c.query("SELECT refresh_freshness($1)", [workspace]);
+    }
     for (const r of rows.rows) {
       await c.query(
         "INSERT INTO event_receipts(event_id) VALUES($1) ON CONFLICT DO NOTHING",
@@ -17,6 +20,7 @@ export async function deliver(pool: pg.Pool) {
         r.event_id,
       ]);
     }
+    await c.query("SELECT refresh_pending_freshness()");
     await c.query("COMMIT");
     return rows.rowCount;
   } catch (e) {

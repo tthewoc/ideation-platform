@@ -5,9 +5,15 @@ import { z } from "zod";
 import { transaction, authDb, fail, missing } from "./db.js";
 import { uuid, createObject, content, named, roles } from "./schema.js";
 import { requireMfa } from "./auth.js";
+import {
+  validateReferences,
+  onPublication,
+  state,
+  freshness,
+} from "./graph-core.js";
 type Result = { body: unknown; status?: number; etag?: string };
-const etag = (v: number) => `"${v}"`;
-function precondition(req: FastifyRequest, version: number) {
+export const etag = (v: number) => `"${v}"`;
+export function precondition(req: FastifyRequest, version: number) {
   if (!req.headers["if-match"])
     fail(428, "precondition_required", "If-Match is required");
   if (req.headers["if-match"] !== etag(version))
@@ -17,7 +23,7 @@ function precondition(req: FastifyRequest, version: number) {
       "This item changed. Reload it before saving.",
     );
 }
-function params(req: FastifyRequest) {
+export function params(req: FastifyRequest) {
   return req.params as Record<string, string>;
 }
 function stable(value: unknown): string {
@@ -32,7 +38,7 @@ function stable(value: unknown): string {
       .join(",")}}`;
   return JSON.stringify(value);
 }
-async function audit(
+export async function audit(
   c: PoolClient,
   req: FastifyRequest,
   w: string,
@@ -58,15 +64,18 @@ async function audit(
     [id, w, action, { target_id: target, revision }],
   );
 }
-async function workspace(c: PoolClient, w: string, lock = false) {
+export async function workspace(c: PoolClient, w: string, lock = false) {
   uuid.parse(w);
+  // Serialize commands without requiring membership administrators' UPDATE policy.
+  if (lock)
+    await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [w]);
   const r = await c.query(
-    `SELECT * FROM workspaces WHERE id=$1 AND member(id) ${lock ? "FOR UPDATE" : ""}`,
+    "SELECT * FROM workspaces WHERE id=$1 AND member(id)",
     [w],
   );
   return r.rows[0] ?? missing();
 }
-async function mutation(
+export async function mutation(
   req: FastifyRequest,
   reply: FastifyReply,
   fn: (c: PoolClient, w: string) => Promise<Result>,
@@ -114,7 +123,7 @@ async function mutation(
   if (result.etag) reply.header("ETag", result.etag);
   return reply.code(result.status ?? 200).send(result.body);
 }
-async function object(c: PoolClient, w: string, id: string) {
+export async function object(c: PoolClient, w: string, id: string) {
   uuid.parse(id);
   const r = await c.query(
     "SELECT * FROM objects WHERE workspace_id=$1 AND id=$2",
@@ -129,26 +138,7 @@ async function editable(c: PoolClient, req: FastifyRequest, w: string) {
   precondition(req, o.version);
   return o;
 }
-async function refs(
-  c: PoolClient,
-  w: string,
-  body: ReturnType<typeof content>,
-  publishing = false,
-) {
-  for (const ref of body.source_refs) {
-    const r = await c.query(
-      `SELECT 1 FROM revisions WHERE workspace_id=$1 AND object_id=$2 AND revision=$3 ${publishing ? "AND published(workspace_id,object_id,revision)" : ""}`,
-      [w, ref.id, ref.revision],
-    );
-    if (!r.rowCount)
-      fail(
-        422,
-        "invalid_reference",
-        "A source reference is unavailable for this audience",
-      );
-  }
-}
-async function append(
+export async function append(
   c: PoolClient,
   w: string,
   o: any,
@@ -167,17 +157,34 @@ async function append(
   );
   return revision;
 }
-async function view(c: PoolClient, w: string, id: string) {
+export async function view(
+  c: PoolClient,
+  w: string,
+  id: string,
+  requestedRevision?: number,
+) {
   const o = await object(c, w, id);
   const drafts = await c.query(
     "SELECT revision FROM draft_heads WHERE workspace_id=$1 AND object_id=$2 AND author_id=actor()",
     [w, id],
   );
-  const revision = drafts.rows[0]?.revision ?? o.current_revision;
+  const granted = (
+    await c.query(
+      "SELECT revision FROM submissions WHERE workspace_id=$1 AND object_id=$2 AND actor()=ANY(reviewer_ids) AND state='submitted' AND expires_at>now() ORDER BY revision DESC LIMIT 1",
+      [w, id],
+    )
+  ).rows[0]?.revision;
+  const revision =
+    requestedRevision ??
+    drafts.rows[0]?.revision ??
+    o.current_revision ??
+    granted;
   const r = await c.query(
     "SELECT * FROM revisions WHERE workspace_id=$1 AND object_id=$2 AND revision=$3",
     [w, id, revision],
   );
+  if (!r.rowCount) missing();
+  const status = await state(c, w, { id, revision });
   const owner = (
     await c.query("SELECT actor() = $1::uuid AS yes", [o.author_id])
   ).rows[0].yes;
@@ -192,10 +199,18 @@ async function view(c: PoolClient, w: string, id: string) {
     revision,
     content: r.rows[0]?.content,
     origin: "human",
-    review_state: "unreviewed",
-    lifecycle: drafts.rowCount ? "draft" : "published",
-    has_draft: !!drafts.rowCount,
-    etag: etag(owner ? o.version : o.current_revision),
+    review_state: status.review_state,
+    validity: status.validity,
+    state_etag: etag(status.version),
+    freshness: await freshness(c, w, { id, revision }),
+    lifecycle:
+      drafts.rows[0]?.revision === revision
+        ? "draft"
+        : o.current_revision
+          ? "published"
+          : "submitted",
+    has_draft: drafts.rows[0]?.revision === revision,
+    etag: etag(owner ? o.version : revision),
   };
 }
 function page(req: FastifyRequest) {
@@ -336,7 +351,7 @@ export async function installApi(app: FastifyInstance) {
   app.post("/v1/workspaces/:w/objects", async (req, reply) =>
     mutation(req, reply, async (c, w) => {
       const b = createObject.parse(req.body);
-      await refs(c, w, b.content);
+      await validateReferences(c, w, b.type, b.content, false);
       const r = await c.query(
         "INSERT INTO objects(workspace_id,type,author_id) VALUES($1,$2,actor()) RETURNING *",
         [w, b.type],
@@ -374,7 +389,10 @@ export async function installApi(app: FastifyInstance) {
   app.get("/v1/workspaces/:w/objects/:id", async (req, reply) =>
     transaction(req.session!.user_id, async (c) => {
       await workspace(c, params(req).w);
-      const v = await view(c, params(req).w, params(req).id);
+      const query = z
+        .object({ revision: z.coerce.number().int().positive().optional() })
+        .parse(req.query);
+      const v = await view(c, params(req).w, params(req).id, query.revision);
       reply.header("ETag", v.etag);
       return v;
     }),
@@ -415,7 +433,7 @@ export async function installApi(app: FastifyInstance) {
               .strict()
               .parse(req.body);
           const body = content(o.type, b.content);
-          await refs(c, w, body);
+          await validateReferences(c, w, o.type, body, false);
           const d = await c.query(
             "SELECT * FROM draft_heads WHERE workspace_id=$1 AND object_id=$2 AND author_id=actor()",
             [w, o.id],
@@ -439,6 +457,10 @@ export async function installApi(app: FastifyInstance) {
           await c.query(
             "INSERT INTO draft_heads VALUES($1,$2,actor(),$3,$4) ON CONFLICT(workspace_id,object_id,author_id) DO UPDATE SET revision=excluded.revision",
             [w, o.id, revision, o.current_revision],
+          );
+          await c.query(
+            "UPDATE submissions SET state='withdrawn',version=version+1 WHERE workspace_id=$1 AND object_id=$2 AND state='submitted'",
+            [w, o.id],
           );
           await audit(c, req, w, "object.revised", o.id, revision);
           const v = await view(c, w, o.id);
@@ -466,7 +488,7 @@ export async function installApi(app: FastifyInstance) {
         [w, o.id, b.revision],
       );
       const body = content(o.type, r.rows[0].content);
-      await refs(c, w, body, true);
+      await validateReferences(c, w, o.type, body, true);
       const revision = await append(
         c,
         w,
@@ -487,6 +509,7 @@ export async function installApi(app: FastifyInstance) {
         "DELETE FROM draft_heads WHERE workspace_id=$1 AND object_id=$2 AND author_id=actor()",
         [w, o.id],
       );
+      await onPublication(c, w, o.id, revision, b.revision, o.type, body);
       await audit(c, req, w, "object.published", o.id, revision);
       const v = await view(c, w, o.id);
       return { body: v, etag: v.etag };

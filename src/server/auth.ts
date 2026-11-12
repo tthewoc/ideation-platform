@@ -97,12 +97,19 @@ export async function installAuth(app: FastifyInstance) {
       },
     );
     const claims = tokens.claims()!;
+    const profile = tokens.access_token
+      ? await oidc.fetchUserInfo(
+          await client(),
+          tokens.access_token,
+          claims.sub,
+        )
+      : claims;
     const user = await authDb.query(
       "INSERT INTO users(issuer,subject,name) VALUES($1,$2,$3) ON CONFLICT(issuer,subject) DO UPDATE SET name=excluded.name RETURNING id",
       [
         config.issuer,
         claims.sub,
-        String(claims.name ?? claims.sub).slice(0, 200),
+        String(profile.name ?? claims.name ?? claims.sub).slice(0, 200),
       ],
     );
     if (req.cookies.session)

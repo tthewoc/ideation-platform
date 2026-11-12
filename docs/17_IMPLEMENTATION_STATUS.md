@@ -1,4 +1,7 @@
-# Implementation status and evidence
+# Slice 1 implementation status and evidence
+
+Historical slice 1 checkpoint. The current graph/review implementation and updated
+boundaries are documented in [slice 2](18_GRAPH_REVIEW_IMPLEMENTATION.md).
 
 The user authorized coding after reviewing and publishing the design packet on
 2026-11-12. This authorizes the first development slice; no further design approval

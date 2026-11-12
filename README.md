@@ -1,9 +1,11 @@
 # Ideator
 
-A TypeScript/Fastify/React registry backed by PostgreSQL 17. The first development
-slice supports OIDC sessions, workspaces and membership, private observation/claim
-drafts, immutable revisions, explicit workspace publication, and shared project
-references. Publication is labelled unreviewed.
+A TypeScript/Fastify/React knowledge workspace backed by PostgreSQL 17. The first
+two development slices support private drafts, immutable publication, project
+reuse, typed graph relationships, scoped evidence assessments, independent review,
+and source freshness. Publication and scientific acceptance remain separate.
+
+See [slice 2 implementation and evidence](docs/18_GRAPH_REVIEW_IMPLEMENTATION.md).
 
 ## Local development
 
@@ -27,8 +29,8 @@ permissions, starts a digest-pinned database on loopback port 55432, and applies
 checksummed migrations. It is repeatable and preserves existing data and local
 configuration. Never commit `.local` or use its synthetic provider in production.
 The API and worker use separate non-owner database roles; migration credentials
-are used only by setup/administration scripts. The outbox worker currently records
-idempotent delivery receipts, providing the transactional base for later consumers.
+are used only by setup/administration scripts. The outbox worker records idempotent delivery receipts and rebuilds lineage freshness
+against workspace epochs; reads report unknown while revalidation is pending.
 
 `npm run dev` runs the API, synthetic identity provider and outbox worker. Ctrl-C
 stops them. Rebuild after editing the UI; reload to use the new bundle. Database
@@ -42,6 +44,7 @@ you intend to delete local data.
 npm run check
 npm run test:browser
 npm run test:restore
+npm run test:graph-load
 npm run format:check
 ```
 

@@ -17,5 +17,6 @@ jobs:
       - run: npm run check
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
+      - run: npm run test:graph-load
       - run: npm run test:restore
       - run: npm run format:check

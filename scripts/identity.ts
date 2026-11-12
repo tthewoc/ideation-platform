@@ -19,7 +19,7 @@ const provider = new Provider(config.issuer, {
   pkce: { required: () => true },
   findAccount: async (_ctx, id) => ({
     accountId: id,
-    claims: async () => ({ sub: id, name: id }),
+    claims: async () => ({ sub: id, name: id.split(":").at(-1) }),
   }),
   interactions: {
     url: (_ctx, interaction) => `/interaction/${interaction.uid}`,
@@ -44,7 +44,13 @@ const server = createServer(async (req, res) => {
         await provider.interactionFinished(
           req,
           res,
-          { login: { accountId: name! } },
+          {
+            login: {
+              accountId: process.env.IDEATOR_TEST_NAMESPACE
+                ? `${process.env.IDEATOR_TEST_NAMESPACE}:${name}`
+                : name!,
+            },
+          },
           { mergeWithLastSubmission: false },
         );
         return;

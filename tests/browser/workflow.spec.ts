@@ -32,7 +32,7 @@ test("OIDC, private draft, publication, correction history and project reuse", a
   await expect(page.getByRole("status")).toHaveText(
     "Published to your workspace.",
   );
-  await page.getByRole("button", { name: "View history" }).click();
+  await page.getByRole("button", { name: "View history", exact: true }).click();
   await expect(
     page.getByRole("region", { name: "Revision history" }),
   ).toContainText("Explicit workspace publication");

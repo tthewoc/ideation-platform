@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
@@ -15,6 +16,7 @@ export default defineConfig({
   },
   webServer: {
     command: "npm run dev",
+    env: { IDEATOR_TEST_NAMESPACE: randomUUID() },
     url: "http://127.0.0.1:3000/health",
     reuseExistingServer: !process.env.CI,
     timeout: 30000,

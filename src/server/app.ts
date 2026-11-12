@@ -7,6 +7,8 @@ import { resolve } from "node:path";
 import { ZodError } from "zod";
 import { installAuth } from "./auth.js";
 import { installApi } from "./api.js";
+import { installGraph } from "./graph.js";
+import { installReviews } from "./reviews.js";
 import { HttpError } from "./db.js";
 import { config } from "./config.js";
 export async function buildApp(logging = false) {
@@ -50,11 +52,13 @@ export async function buildApp(logging = false) {
         ? e.status
         : e instanceof ZodError
           ? 422
-          : e.code === "23503" || e.code === "23505"
-            ? 409
-            : e.code === "42501"
-              ? 403
-              : (e.statusCode ?? 500);
+          : e.code === "57014"
+            ? 503
+            : e.code === "23503" || e.code === "23505"
+              ? 409
+              : e.code === "42501"
+                ? 403
+                : (e.statusCode ?? 500);
     if (status >= 500)
       req.log.error({ code: e.code, request_id: req.id }, "Request failed");
     reply.code(status).send({
@@ -81,6 +85,8 @@ export async function buildApp(logging = false) {
   });
   app.get("/health", async () => ({ status: "ok" }));
   await installApi(app);
+  await installGraph(app);
+  await installReviews(app);
   await app.register(staticFiles, { root: resolve("dist") });
   app.setNotFoundHandler((req, reply) =>
     req.url.startsWith("/v1")

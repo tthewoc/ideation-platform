@@ -55,11 +55,28 @@ try {
       ).rowCount,
       0,
     );
+    assert.equal(
+      (
+        await admin.query(
+          "SELECT 1 FROM lineage l LEFT JOIN publications p ON p.workspace_id=l.workspace_id AND p.object_id=l.input_id AND p.revision=l.input_revision WHERE p.object_id IS NULL",
+        )
+      ).rowCount,
+      0,
+    );
     await runtime.query("BEGIN");
     await runtime.query("SELECT set_config('app.actor',$1,true)", [
       randomUUID(),
     ]);
     assert.equal((await runtime.query("SELECT * FROM revisions")).rowCount, 0);
+    for (const table of [
+      "edges",
+      "edge_revisions",
+      "reviews",
+      "submissions",
+      "lineage",
+      "equivalences",
+    ])
+      assert.equal((await runtime.query(`SELECT * FROM ${table}`)).rowCount, 0);
     await runtime.query("ROLLBACK");
     const sample = (
       await admin.query(

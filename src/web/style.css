@@ -333,3 +333,63 @@ footer {
     font-size: 44px;
   }
 }
+.graph-review {
+  margin-top: 48px;
+  border-top: 1px solid #d3d9d0;
+  padding-top: 20px;
+}
+.graph-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+}
+.graph-grid > section {
+  background: white;
+  border: 1px solid #d6dcd0;
+  border-radius: 8px;
+  padding: 24px;
+}
+.graph-review button {
+  margin: 6px 8px 6px 0;
+}
+.table-scroll {
+  overflow: auto;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+th,
+td {
+  padding: 12px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid #d6dcd0;
+  overflow-wrap: anywhere;
+}
+caption {
+  text-align: left;
+  margin: 16px 0;
+  font-weight: 600;
+}
+.checkbox {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.checkbox input {
+  width: auto;
+  margin: 0;
+}
+.graph-review .notice {
+  margin: 24px 0;
+}
+.graph-review select[multiple] {
+  min-height: 130px;
+}
+@media (max-width: 900px) {
+  .graph-grid {
+    grid-template-columns: 1fr;
+  }
+}
