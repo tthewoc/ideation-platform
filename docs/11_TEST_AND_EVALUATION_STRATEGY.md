@@ -47,6 +47,8 @@ dependency cycles, randomized policy memberships and retry interleavings. Seed
 and minimize failures. Check projection rebuild equivalence from authoritative
 records and crash-consistency at each transaction boundary.
 
+The offline [evaluation evidence runner](22_EVALUATION_RUNNER.md) now checks supplied evidence against the scoring gates below. Its seed readiness check is blocked; no live evaluation or human adjudication is claimed.
+
 ## AI corpus and scoring
 
 A concrete 12-case design-time seed is stored in

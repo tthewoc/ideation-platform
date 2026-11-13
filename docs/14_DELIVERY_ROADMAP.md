@@ -4,7 +4,7 @@ Status: the user authorized coding on 2026-11-12 after the documentation review.
 **Slices 1–4 have working implementations.** See the latest
 [implementation evidence](20_RETRIEVAL_EXPORT_IMPLEMENTATION.md). Slice 5 has
 [local workflow preparation with linked resubmission, review history and expiry](21_LOCAL_PROPOSAL_WORKFLOW.md); live AI and quality
-gates remain outstanding.
+gates remain outstanding. An [offline evaluation runner](22_EVALUATION_RUNNER.md) now validates evidence and produces explicitly blocked seed-readiness reports.
 The greenfield brief §15 requires completed documents and explicit human approval
 before application code, migrations or scaffolding. Review this set as one design.
 

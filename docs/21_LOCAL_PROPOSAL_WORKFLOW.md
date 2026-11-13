@@ -164,3 +164,5 @@ tests and all five browser journeys. The final focused proposal suite passed all
 10 tests, including a transaction opened before the review deadline that attempts
 its write after expiry. Restore verification passed for 1,171 revisions, 34
 artifact blobs and 2,236 prior receipts. Live-model evaluation remains gated.
+
+The next increment adds an [offline evaluation runner](22_EVALUATION_RUNNER.md). It validates supplied evidence and reports the current seed as blocked; it does not replace live execution, corpus expansion or independent human review.

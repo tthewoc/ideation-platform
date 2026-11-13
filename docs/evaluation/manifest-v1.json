@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "version": "seed-v1",
+  "corpus_sha256": "e735595b15b423b400a8c8f72cc46878b1b25a1239a65eb8310a3634b03b9092",
+  "cases": [
+    {
+      "id": "C01",
+      "split": "development",
+      "tags": [],
+      "used_for_tuning": true
+    },
+    {
+      "id": "C02",
+      "split": "development",
+      "tags": [
+        "adversarial"
+      ],
+      "used_for_tuning": true
+    },
+    {
+      "id": "C03",
+      "split": "development",
+      "tags": [
+        "adversarial"
+      ],
+      "used_for_tuning": true
+    },
+    {
+      "id": "C04",
+      "split": "development",
+      "tags": [
+        "contradiction_null"
+      ],
+      "used_for_tuning": true
+    },
+    {
+      "id": "C05",
+      "split": "development",
+      "tags": [
+        "contradiction_null"
+      ],
+      "used_for_tuning": true
+    },
+    {
+      "id": "C06",
+      "split": "development",
+      "tags": [
+        "contradiction_null"
+      ],
+      "used_for_tuning": true
+    },
+    {
+      "id": "C07",
+      "split": "development",
+      "tags": [
+        "adversarial"
+      ],
+      "used_for_tuning": true
+    },
+    {
+      "id": "C08",
+      "split": "development",
+      "tags": [
+        "adversarial"
+      ],
+      "used_for_tuning": true
+    },
+    {
+      "id": "C09",
+      "split": "development",
+      "tags": [
+        "adversarial"
+      ],
+      "used_for_tuning": true
+    },
+    {
+      "id": "C10",
+      "split": "development",
+      "tags": [
+        "adversarial"
+      ],
+      "used_for_tuning": true
+    },
+    {
+      "id": "C11",
+      "split": "development",
+      "tags": [
+        "adversarial"
+      ],
+      "used_for_tuning": true
+    },
+    {
+      "id": "C12",
+      "split": "development",
+      "tags": [],
+      "used_for_tuning": true
+    }
+  ]
+}

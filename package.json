@@ -20,7 +20,8 @@
     "test:graph-load": "tsx scripts/graph-load-check.ts",
     "test:restore": "tsx scripts/restore-check.ts",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"scripts/**/*.ts\" \"tests/**/*.ts\" *.ts",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css,html}\" \"scripts/**/*.ts\" \"tests/**/*.ts\" *.ts"
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css,html}\" \"scripts/**/*.ts\" \"tests/**/*.ts\" *.ts",
+    "evaluate": "tsx scripts/evaluate.ts"
   },
   "dependencies": {
     "@fastify/cookie": "11.1.5",

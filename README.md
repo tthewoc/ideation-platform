@@ -69,6 +69,12 @@ deduplication, and deletes only that temporary database. Run it after integratio
 tests while no other task is mutating the local database. This is a local logical
 backup drill, not production WAL/PITR or a measured production RPO/RTO guarantee.
 
+## Evaluation evidence
+
+`npm run evaluate` writes a JSON/Markdown readiness report and intentionally exits 2
+for the incomplete design seed. It makes no model calls and grants no release
+authorization. See the [evidence contract and commands](docs/22_EVALUATION_RUNNER.md).
+
 ## API and operational boundaries
 
 JSON API routes live under `/v1`; authenticated writes require a CSRF header,

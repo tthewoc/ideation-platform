@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "run_id": "00000000-0000-4000-8000-000000000001",
+  "corpus_sha256": "e735595b15b423b400a8c8f72cc46878b1b25a1239a65eb8310a3634b03b9092",
+  "mode": "fixture",
+  "provider": null,
+  "model": null,
+  "adapter_version": "documentation-example-v1",
+  "prompt_sha256": "430a3ab942db7f91409fefcca9d3810535022dc8a1a6fdba5a56664566f76f6e",
+  "commit": "f3aa9e48838de52a6f9f566b362094fc9488dd99",
+  "created_at": "2026-11-13T00:00:00Z",
+  "author_ids": [
+    "00000000-0000-4000-8000-000000000002"
+  ],
+  "items": [
+    {
+      "case_id": "C01",
+      "output": "Documentation fixture for the offline evidence contract; no model inference or human review.",
+      "output_sha256": "8ed75b56361e5b5b125868f3918db8009ebca5a41e7936f3f16c6f600d6f9a36",
+      "checks": {
+        "schema": "not_run",
+        "permission": "not_run",
+        "budget": "not_run"
+      },
+      "reviews": [],
+      "adjudication": null
+    }
+  ]
+}
