@@ -342,6 +342,158 @@ test("failed multi-candidate publication rolls back the entire batch", async () 
     before,
   );
 });
+test("linked resubmission preserves decisions and quota, requires fresh review, and protects history", async () => {
+  const p = await proposal(await queue());
+  const pending = await req(author, "POST", `${base}/ai/intake`, {
+    ...requestBody(),
+    previous_proposal: { id: p.id, version: p.version },
+  });
+  assert.equal(pending.statusCode, 409, pending.body);
+  const decided = await req(
+    reviewer,
+    "POST",
+    `${base}/ai/proposals/${p.id}/decisions`,
+    {
+      decision: "needs_evidence",
+      reason: "Add a clearer source and scope",
+      conflict_declaration: "none",
+    },
+    p.etag,
+  );
+  assert.equal(decided.statusCode, 200, decided.body);
+  const history = await req(
+    author,
+    "GET",
+    `${base}/ai/proposals/${p.id}/history`,
+  );
+  assert.equal(history.statusCode, 200, history.body);
+  assert.equal(
+    history.json().decisions[0].reason,
+    "Add a clearer source and scope",
+  );
+  assert.equal(history.json().run.provenance.template, "restatement-v1");
+  assert.equal(history.json().run.provenance.model, null);
+  assert.equal(history.json().run.token, undefined);
+  assert.equal(history.json().run.manifest[0].id, source.id);
+  assert.equal(
+    (await req(other, "GET", `${base}/ai/proposals/${p.id}/history`))
+      .statusCode,
+    404,
+  );
+  const body = {
+    ...requestBody(),
+    instruction: "Revised scope using the supplied evidence",
+    previous_proposal: { id: p.id, version: p.version + 1 },
+  };
+  assert.equal(
+    (await req(reviewer, "POST", `${base}/ai/intake`, body)).statusCode,
+    403,
+  );
+  assert.equal(
+    (
+      await req(author, "POST", `${base}/ai/intake`, {
+        ...body,
+        previous_proposal: { id: p.id, version: p.version },
+      })
+    ).statusCode,
+    409,
+  );
+  assert.equal(
+    (
+      await req(author, "POST", `${base}/ai/intake`, {
+        ...body,
+        reviewer_id: other.id,
+      })
+    ).statusCode,
+    409,
+  );
+  await assert.rejects(
+    transaction(reviewer.id, (c) =>
+      c.query("SELECT resubmit_fixture_run($1,$2,$3,$4,$5,$6,$7,$8)", [
+        w,
+        p.id,
+        p.version + 1,
+        reviewer.id,
+        body.instruction,
+        JSON.stringify(body.input_refs),
+        4000,
+        2000,
+      ]),
+    ),
+    { code: "42501" },
+  );
+  await assert.rejects(
+    transaction(author.id, (c) =>
+      c.query("SELECT resubmit_fixture_run($1,$2,$3,$4,$5,$6,$7,$8)", [
+        w,
+        p.id,
+        null,
+        reviewer.id,
+        body.instruction,
+        JSON.stringify(body.input_refs),
+        4000,
+        2000,
+      ]),
+    ),
+    { code: "40001" },
+  );
+  const before = (
+    await admin.query(
+      "SELECT allocated_units FROM ai_usage WHERE workspace_id=$1 AND day=current_date",
+      [w],
+    )
+  ).rows[0].allocated_units;
+  const key = randomUUID();
+  const queued = await req(
+    author,
+    "POST",
+    `${base}/ai/intake`,
+    body,
+    undefined,
+    key,
+  );
+  assert.equal(queued.statusCode, 202, queued.body);
+  assert.deepEqual(
+    (
+      await req(author, "POST", `${base}/ai/intake`, body, undefined, key)
+    ).json(),
+    queued.json(),
+  );
+  assert.equal(
+    (
+      await admin.query(
+        "SELECT allocated_units FROM ai_usage WHERE workspace_id=$1 AND day=current_date",
+        [w],
+      )
+    ).rows[0].allocated_units,
+    before + 6000,
+  );
+  const revised = await proposal(queued.json());
+  assert.equal(revised.disposition, "pending");
+  assert.equal(revised.published_refs, null);
+  assert.equal(
+    (
+      await req(
+        author,
+        "POST",
+        `${base}/ai/proposals/${revised.id}/publish`,
+        { confirmation: true },
+        revised.etag,
+      )
+    ).statusCode,
+    409,
+  );
+  const nextHistory = (
+    await req(reviewer, "GET", `${base}/ai/proposals/${revised.id}/history`)
+  ).json();
+  assert.equal(nextHistory.run.previous_proposal_id, p.id);
+  assert.equal(nextHistory.run.instruction, body.instruction);
+  assert.equal(nextHistory.decisions.length, 0);
+  assert.deepEqual(
+    (await req(author, "GET", `${base}/ai/proposals/${p.id}/history`)).json(),
+    history.json(),
+  );
+});
 test("concurrent requests cannot exceed the atomic daily fixture quota", async () => {
   await admin.query(
     "UPDATE ai_usage SET allocated_units=94000 WHERE workspace_id=$1 AND day=current_date",

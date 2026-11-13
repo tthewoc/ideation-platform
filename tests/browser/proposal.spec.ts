@@ -125,7 +125,7 @@ test("local fixture proposal needs independent disposition and explicit origin-p
       .click();
     await reviewLab
       .getByRole("combobox", { name: "Proposal disposition", exact: true })
-      .selectOption("accepted");
+      .selectOption("needs_evidence");
     await reviewLab
       .getByLabel("Proposal decision reason")
       .fill(
@@ -142,6 +142,71 @@ test("local fixture proposal needs independent disposition and explicit origin-p
     await expect(
       reviewLab.getByRole("log", { name: "Proposal workflow update" }),
     ).toContainText("Nothing was published");
+    await lab
+      .getByRole("button", { name: "Refresh proposal workflow" })
+      .click();
+    await lab
+      .getByRole("button", { name: "Inspect run and review history" })
+      .click();
+    await expect(
+      lab.getByRole("region", { name: "Run and review history" }),
+    ).toContainText("Fixture attribution verified");
+    const revisionSelect = lab.getByLabel("Revise a previous proposal");
+    const previous = await revisionSelect
+      .locator("option")
+      .nth(1)
+      .getAttribute("value");
+    await revisionSelect.selectOption(previous!);
+    await lab
+      .getByLabel("Workflow test instruction")
+      .fill("Revised scope: keep this synthetic attribution explicit");
+    await lab
+      .getByRole("button", { name: "Queue local proposal test" })
+      .click();
+    await expect(async () => {
+      await lab
+        .getByRole("button", { name: "Refresh proposal workflow" })
+        .click();
+      await expect(lab.getByRole("article")).toHaveCount(2);
+    }).toPass({ timeout: 30000, intervals: [1000] });
+    await expect(
+      lab.getByRole("button", { name: "Publish accepted fixture" }),
+    ).toHaveCount(0);
+    await reviewLab
+      .getByRole("button", { name: "Refresh proposal workflow" })
+      .click();
+    const pending = reviewLab.getByRole("article").filter({
+      has: reviewer.getByRole("combobox", {
+        name: "Proposal disposition",
+        exact: true,
+      }),
+    });
+    await pending
+      .getByRole("button", { name: "Inspect run and review history" })
+      .click();
+    await expect(
+      pending.getByRole("region", { name: "Run and review history" }),
+    ).toContainText(previous!);
+    await expect(
+      pending.getByRole("region", { name: "Run and review history" }),
+    ).toContainText("No independent decision recorded");
+    await pending
+      .getByRole("combobox", { name: "Proposal disposition", exact: true })
+      .selectOption("accepted");
+    await pending
+      .getByLabel("Proposal decision reason")
+      .fill("Revised attribution verified with the supplied source");
+    await pending
+      .getByLabel(
+        "I am independent and have no conflict in this proposal review.",
+      )
+      .check();
+    await pending
+      .getByRole("button", { name: "Record proposal disposition" })
+      .click();
+    await expect(
+      reviewLab.getByRole("article").filter({ hasText: "· accepted" }),
+    ).toHaveCount(1);
     await lab
       .getByRole("button", { name: "Refresh proposal workflow" })
       .click();

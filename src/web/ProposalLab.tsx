@@ -16,17 +16,24 @@ export function ProposalLab({
   onSelect: (o: any) => void;
 }) {
   const [enabled, setEnabled] = useState(false),
+    [histories, setHistories] = useState<Record<string, any>>({}),
     [runs, setRuns] = useState<any[]>([]),
     [proposals, setProposals] = useState<any[]>([]),
     [message, setMessage] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   useEffect(() => {
+    setRuns([]);
+    setProposals([]);
+    setHistories({});
+    setMessage("");
+    setError("");
     api("/v1/ai/capabilities")
       .then((c) => setEnabled(c.local_fixture))
       .catch(() => setEnabled(false));
   }, [base]);
   async function refresh() {
+    setHistories({});
     setRuns((await api(`${base}/ai/runs`)).items);
     setProposals((await api(`${base}/ai/proposals`)).items);
   }
@@ -63,6 +70,16 @@ export function ProposalLab({
             const f = new FormData(e.currentTarget);
             run(async () => {
               await api(`${base}/ai/intake`, "POST", {
+                ...(f.get("previous")
+                  ? {
+                      previous_proposal: {
+                        id: f.get("previous"),
+                        version: proposals.find(
+                          (p) => p.id === f.get("previous"),
+                        ).version,
+                      },
+                    }
+                  : {}),
                 adapter: "fixture-v1",
                 acknowledged_test: true,
                 input_refs: f.getAll("inputs").map((v) => {
@@ -81,6 +98,31 @@ export function ProposalLab({
             });
           }}
         >
+          <label>
+            Revise a previous proposal
+            <select name="previous" defaultValue="">
+              <option value="">New independent run</option>
+              {proposals
+                .filter(
+                  (p) =>
+                    p.requester_id === userId &&
+                    ["rejected", "deferred", "needs_evidence"].includes(
+                      p.disposition,
+                    ),
+                )
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.id.slice(0, 8)} · {p.disposition}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <p>
+            For a revision, select current inputs, explain the changes in the
+            instruction and retain the same reviewer. This consumes a new quota
+            reservation and requires a fresh independent decision. The original
+            remains unchanged.
+          </p>
           <label>
             Published inputs for local test
             <select name="inputs" multiple required>
@@ -173,6 +215,56 @@ export function ProposalLab({
             <h4>
               Proposal {p.id.slice(0, 8)} · {p.disposition}
             </h4>
+            <button
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  const history = await api(
+                    `${base}/ai/proposals/${p.id}/history`,
+                  );
+                  setHistories((h) => ({ ...h, [p.id]: history }));
+                })
+              }
+            >
+              Inspect run and review history
+            </button>
+            {histories[p.id] && (
+              <section aria-label="Run and review history">
+                <p>
+                  Adapter {histories[p.id].run.provenance.adapter} · template{" "}
+                  {histories[p.id].run.provenance.template} · schema{" "}
+                  {histories[p.id].run.provenance.candidate_schema}. No provider
+                  or model.
+                </p>
+                <p>Instruction: {histories[p.id].run.instruction}</p>
+                <p>
+                  Previous proposal:{" "}
+                  {histories[p.id].run.previous_proposal_id ?? "None"}
+                </p>
+                <p>
+                  Reserved input/output units:{" "}
+                  {histories[p.id].run.input_budget} /{" "}
+                  {histories[p.id].run.output_budget}
+                </p>
+                <details>
+                  <summary>Pinned input manifest</summary>
+                  <pre>
+                    {JSON.stringify(histories[p.id].run.manifest, null, 2)}
+                  </pre>
+                </details>
+                <ul>
+                  {histories[p.id].decisions.map((d: any) => (
+                    <li key={d.id}>
+                      {d.decision} · {d.reason} · reviewer {d.actor_id} ·{" "}
+                      {d.created_at}
+                    </li>
+                  ))}
+                </ul>
+                {!histories[p.id].decisions.length && (
+                  <p>No independent decision recorded.</p>
+                )}
+              </section>
+            )}
             {p.candidates.map((candidate: any, i: number) => (
               <div key={i}>
                 <strong>{candidate.content.title}</strong>

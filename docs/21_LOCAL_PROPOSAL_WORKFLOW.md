@@ -51,21 +51,33 @@ only when `LOCAL_DEVELOPMENT=true`.
 
 | Route | Contract |
 |---|---|
-| `POST ai/intake` | `adapter:"fixture-v1"`, explicit acknowledgement, input refs, independent reviewer, instruction and budgets → queued run |
+| `POST ai/intake` | Optional `previous_proposal:{id,version}` for linked resubmission; `adapter:"fixture-v1"`, explicit acknowledgement, input refs, independent reviewer, instruction and budgets → queued run |
 | `GET ai/runs` | Latest 25 permitted runs with state, version and observed fixture units |
 | `POST ai/runs/:id/cancel` | Requester; run ETag; only queued/running work |
 | `GET ai/proposals` | Latest 25 private permitted candidates and dispositions |
+| `GET ai/proposals/:id/history` | Authorized run instruction, pinned manifest, fixture provenance, budgets, previous proposal link and immutable reviewer reasons; never worker tokens |
 | `POST ai/proposals/:id/decisions` | Named current reviewer, proposal ETag, decision/reason/no-conflict declaration |
 | `POST ai/proposals/:id/publish` | Requester, accepted proposal ETag and explicit audience confirmation |
 
-Migrations 014–017 add scoped run/proposal projections, immutable decisions,
-atomic allowance/publication functions, source reauthorization and state audit.
+Migrations 014–019 add scoped run/proposal projections, immutable decisions,
+atomic allowance/publication functions, source reauthorization, state audit and
+linked resubmission. Runs persist fixture adapter/template/schema versions and
+explicit null provider/model metadata. This describes the local deterministic
+fixture; it is not a live prompt digest or provider execution record.
 Worker functions do not accept a caller-selected arbitrary requester identity.
 Budget reservations and epochs are persisted in PostgreSQL. A crash leaves running
 work to expire rather than silently dispatching a duplicate. There is no fixture
 retry because the deterministic adapter has no transient provider failures.
-Deferred/needs-evidence proposals are retained for inspection; revised work requires
-a new run. Configurable proposal retention/resubmission are still pending.
+Rejected, deferred and needs-evidence proposals can now be resubmitted as a linked
+new run. The original requester supplies the previous proposal ID/version, revised
+instruction and current inputs, retaining the same independent reviewer. The old
+proposal and immutable decision remain unchanged. Each resubmission reserves its
+own quota; replay of the same command reserves it once. The new proposal starts
+pending and needs fresh review and separate publication. Pending, accepted and
+published proposals cannot be used as resubmission parents. Both the previous
+inputs and new inputs must remain readable; unavailable old inputs fail closed.
+Changing the reviewer requires a separate independent run, not linked resubmission.
+Configurable retention and expiry of private proposals remain pending.
 
 ## Gates still required before slice 5 can be declared complete
 
@@ -78,7 +90,7 @@ a new run. Configurable proposal retention/resubmission are still pending.
   used solely for storage/permission tests, not semantic-quality claims.
 - Formalisation beyond a fixture claim: methods, justified research tasks, alternative
   hypotheses, questions, ethical constraints and mappings to original inputs/turns.
-- Prompt/template/provider provenance, cancellation against live execution, complete
+- Prompt/template/provider provenance, cancellation against live execution, production
   proposal resubmission/retention policy and production operational checks.
 - Expansion to the documented 40 development/20 held-out cases, adversarial and null/
   contradiction coverage, two independent human reviewers with adjudication, and
@@ -98,7 +110,22 @@ concurrent daily allowance and reviewer-scope removal. Browser validation follow
 two synthetic users through request, review and separate publication, including
 an axe scan. These checks validate workflow mechanics, not AI output quality.
 
-The completed checkpoint passed type checking, the production build, all 47
+The initial local-workflow checkpoint passed type checking, the production build, all 47
 integration tests and all five browser journeys. Restore verification passed for
 735 revisions and 20 artifact blobs, including runtime row-level security,
 source integrity, audit/outbox links and receipt deduplication.
+
+The next increment adds linked resubmission and permission-checked run/review
+history in the UI. Integration coverage includes preservation of the original
+manifest and decision, unauthorized history denial, invalid parent/version/reviewer
+rejection, null-version denial through the runtime database role, exactly-once
+quota allocation on replay and mandatory fresh review. The browser journey now
+requests evidence, inspects history, resubmits, independently accepts and separately
+publishes. Retention expiry and live-provider provenance remain outstanding.
+
+The linked-resubmission checkpoint passed type checking, production build,
+formatting, all 48 integration tests and all five browser journeys. A final
+focused run also passed all eight proposal integration tests, including the
+null-version database guard. Restore verification passed with 950 revisions,
+27 artifact blobs and 1,748 prior receipts. These are synthetic workflow and
+recovery checks, not live-model or semantic-quality evaluation.

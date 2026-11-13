@@ -82,6 +82,10 @@ export async function installFixture(app: FastifyInstance) {
         .object({
           adapter: z.literal("fixture-v1"),
           acknowledged_test: z.literal(true),
+          previous_proposal: z
+            .object({ id: uuid, version: z.number().int().positive() })
+            .strict()
+            .optional(),
           input_refs: z.array(ref).min(1).max(20),
           reviewer_id: uuid,
           instruction: reason.max(2000),
@@ -113,15 +117,51 @@ export async function installFixture(app: FastifyInstance) {
         ).rows[0]?.allocated_units ?? 0;
       if (usage + b.input_budget + b.output_budget > 100000)
         fail(429, "fixture_budget", "Daily local-test quota exhausted");
+      let previous;
+      if (b.previous_proposal) {
+        previous =
+          (
+            await c.query(
+              "SELECT * FROM ai_proposals WHERE workspace_id=$1 AND id=$2",
+              [w, b.previous_proposal.id],
+            )
+          ).rows[0] ?? missing();
+        if (previous.requester_id !== req.session!.user_id)
+          fail(403, "forbidden", "Only the original requester may resubmit");
+        if (
+          previous.version !== b.previous_proposal.version ||
+          !["rejected", "deferred", "needs_evidence"].includes(
+            previous.disposition,
+          ) ||
+          previous.published_refs
+        )
+          fail(
+            409,
+            "invalid_resubmission",
+            "Select a current rejected, deferred or needs-evidence proposal",
+          );
+        if (previous.reviewer_id !== b.reviewer_id)
+          fail(
+            409,
+            "reviewer_changed",
+            "Linked resubmission retains the independent reviewer",
+          );
+      }
+      const args = [
+        w,
+        b.reviewer_id,
+        b.instruction,
+        JSON.stringify(refs),
+        b.input_budget,
+        b.output_budget,
+      ];
       const id = (
-        await c.query("SELECT queue_fixture_run($1,$2,$3,$4,$5,$6) id", [
-          w,
-          b.reviewer_id,
-          b.instruction,
-          JSON.stringify(refs),
-          b.input_budget,
-          b.output_budget,
-        ])
+        await c.query(
+          previous
+            ? "SELECT resubmit_fixture_run($1,$7,$8,$2,$3,$4,$5,$6) id"
+            : "SELECT queue_fixture_run($1,$2,$3,$4,$5,$6) id",
+          previous ? [...args, previous.id, previous.version] : args,
+        )
       ).rows[0].id;
       await audit(c, req, w, "ai.fixture_queued", id);
       return {
@@ -180,6 +220,33 @@ export async function installFixture(app: FastifyInstance) {
           )
         ).rows.map((p) => ({ ...p, etag: etag(p.version) })),
       };
+    }),
+  );
+  app.get("/v1/workspaces/:w/ai/proposals/:id/history", async (req) =>
+    transaction(req.session!.user_id, async (c) => {
+      const { w, id } = params(req);
+      await workspace(c, w);
+      const proposal =
+        (
+          await c.query(
+            "SELECT * FROM ai_proposals WHERE workspace_id=$1 AND id=$2",
+            [w, uuid.parse(id)],
+          )
+        ).rows[0] ?? missing();
+      const run =
+        (
+          await c.query(
+            "SELECT id,adapter,instruction,input_refs,manifest,provenance,previous_proposal_id,input_budget,output_budget,input_units,output_units,state,created_at FROM ai_runs WHERE workspace_id=$1 AND id=$2",
+            [w, proposal.run_id],
+          )
+        ).rows[0] ?? missing();
+      const decisions = (
+        await c.query(
+          "SELECT id,actor_id,decision,reason,created_at FROM ai_decisions WHERE workspace_id=$1 AND proposal_id=$2 ORDER BY created_at,id",
+          [w, proposal.id],
+        )
+      ).rows;
+      return { run, decisions };
     }),
   );
   app.post("/v1/workspaces/:w/ai/proposals/:id/decisions", async (req, reply) =>

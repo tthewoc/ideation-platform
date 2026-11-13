@@ -199,3 +199,8 @@ publication boundary are recorded in [the implementation contract](19_RESEARCH_A
 
 See [slice 4](20_RETRIEVAL_EXPORT_IMPLEMENTATION.md) for bounded lexical/graph
 retrieval, opaque cursors, revision export permissions and job/download reauthorization.
+
+Local proposal intake, linked resubmission and permission-checked run/review history
+are documented in [the local proposal workflow contract](21_LOCAL_PROPOSAL_WORKFLOW.md).
+These fixture routes remain disabled outside local development; they do not enable
+external AI or bypass independent review and explicit publication.
