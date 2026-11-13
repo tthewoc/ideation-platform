@@ -82,3 +82,14 @@ input revalidation, vector generation coverage and rank quality per model versio
 Never return stale authorization on worker outage. Hybrid retrieval and sharing
 release checks include rebuilding projections during membership/grant revocation.
 Workspace release policy, MFA assurance and embargo checks belong in smoke tests.
+
+## Local proposal review deadlines
+
+`FIXTURE_REVIEW_DAYS` is an optional integer from 1 to 90, default 30. The API
+snapshots a deadline into each new local fixture run; changing the setting does not
+extend existing proposals. Migration 020 backfills existing records from creation
+time using 30 days. Expiry uses the PostgreSQL wall clock at mutation time, without
+a worker sweep. It prevents review, linked resubmission and publication of expired
+private proposals, while preserving history and published objects. Configure and
+monitor database time consistently. This is not a data-deletion or legal-retention
+policy, and does not enable a provider or live AI.

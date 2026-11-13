@@ -1,5 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import pg from "pg";
+import { config as loadEnv } from "dotenv";
+loadEnv({ path: ".local/dev.env", quiet: true });
 async function login(page: Page, name: string) {
   await page.context().addCookies([
     {
@@ -228,6 +231,57 @@ test("local fixture proposal needs independent disposition and explicit origin-p
     await expect(
       details.getByRole("button", { name: "Create correction", exact: true }),
     ).toHaveCount(0);
+    await expect(lab).toContainText(
+      "Published; review deadline no longer applies",
+    );
+    await lab.getByLabel("Revise a previous proposal").selectOption("");
+    await lab
+      .getByRole("button", { name: "Queue local proposal test" })
+      .click();
+    await expect(async () => {
+      await lab
+        .getByRole("button", { name: "Refresh proposal workflow" })
+        .click();
+      await expect(lab.getByRole("article")).toHaveCount(3);
+    }).toPass({ timeout: 30000, intervals: [1000] });
+    const admin = new pg.Pool({
+      connectionString: process.env.DATABASE_ADMIN_URL,
+    });
+    try {
+      await admin.query(
+        "UPDATE ai_proposals SET expires_at=clock_timestamp()-interval '1 second' WHERE workspace_id=$1 AND published_refs IS NULL",
+        [fixture.w],
+      );
+    } finally {
+      await admin.end();
+    }
+    await lab
+      .getByRole("button", { name: "Refresh proposal workflow" })
+      .click();
+    await expect(
+      lab.getByText("Expired — history only", { exact: false }),
+    ).toHaveCount(2);
+    await expect(
+      lab.getByLabel("Revise a previous proposal").locator("option"),
+    ).toHaveCount(1);
+    await reviewLab
+      .getByRole("button", { name: "Refresh proposal workflow" })
+      .click();
+    await expect(
+      reviewLab.getByRole("combobox", {
+        name: "Proposal disposition",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    const expiredPending = reviewLab
+      .getByRole("article")
+      .filter({ hasText: "· pending" });
+    await expiredPending
+      .getByRole("button", { name: "Inspect run and review history" })
+      .click();
+    await expect(
+      expiredPending.getByRole("region", { name: "Run and review history" }),
+    ).toContainText("No independent decision recorded");
     const a11y = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
       .analyze();

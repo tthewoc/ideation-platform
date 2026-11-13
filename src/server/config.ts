@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { config as dotenv } from "dotenv";
 dotenv({ path: ".local/dev.env", quiet: true });
 function required(name: string) {
@@ -14,6 +15,12 @@ export const config = {
   clientSecret: required("OIDC_CLIENT_SECRET"),
   sessionSecret: required("SESSION_SECRET"),
   local: process.env.LOCAL_DEVELOPMENT === "true",
+  fixtureReviewDays: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(90)
+    .parse(process.env.FIXTURE_REVIEW_DAYS ?? 30),
   mfa: process.env.REQUIRE_ADMIN_MFA === "true",
 };
 if (config.sessionSecret.length < 32)

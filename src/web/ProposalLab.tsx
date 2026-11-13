@@ -16,6 +16,7 @@ export function ProposalLab({
   onSelect: (o: any) => void;
 }) {
   const [enabled, setEnabled] = useState(false),
+    [reviewDays, setReviewDays] = useState(30),
     [histories, setHistories] = useState<Record<string, any>>({}),
     [runs, setRuns] = useState<any[]>([]),
     [proposals, setProposals] = useState<any[]>([]),
@@ -29,7 +30,10 @@ export function ProposalLab({
     setMessage("");
     setError("");
     api("/v1/ai/capabilities")
-      .then((c) => setEnabled(c.local_fixture))
+      .then((c) => {
+        setEnabled(c.local_fixture);
+        setReviewDays(c.review_window_days);
+      })
       .catch(() => setEnabled(false));
   }, [base]);
   async function refresh() {
@@ -59,6 +63,11 @@ export function ProposalLab({
           review. It makes no external calls and performs no model inference.
           Its output is a fixture, not research advice. Live AI and semantic
           ranking remain disabled.
+        </p>
+        <p>
+          New proposals have a {reviewDays}-day review window from request time.
+          After expiry, history stays available but review, linked resubmission
+          and publication close. Published knowledge remains available.
         </p>
         <p role="alert">{error}</p>
         <p role="log" aria-label="Proposal workflow update">
@@ -106,6 +115,7 @@ export function ProposalLab({
                 .filter(
                   (p) =>
                     p.requester_id === userId &&
+                    !p.expired &&
                     ["rejected", "deferred", "needs_evidence"].includes(
                       p.disposition,
                     ),
@@ -265,6 +275,18 @@ export function ProposalLab({
                 )}
               </section>
             )}
+            <p>
+              Review deadline:{" "}
+              <time dateTime={p.expires_at}>
+                {new Date(p.expires_at).toLocaleString()}
+              </time>{" "}
+              ·{" "}
+              {p.published_refs
+                ? "Published; review deadline no longer applies"
+                : p.expired
+                  ? "Expired — history only"
+                  : "Open review window"}
+            </p>
             {p.candidates.map((candidate: any, i: number) => (
               <div key={i}>
                 <strong>{candidate.content.title}</strong>
@@ -293,50 +315,53 @@ export function ProposalLab({
                 </ul>
               </div>
             ))}
-            {p.disposition === "pending" && p.reviewer_id === userId && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const f = new FormData(e.currentTarget);
-                  run(async () => {
-                    await api(
-                      `${base}/ai/proposals/${p.id}/decisions`,
-                      "POST",
-                      {
-                        decision: f.get("decision"),
-                        reason: f.get("reason"),
-                        conflict_declaration: "none",
-                      },
-                      p.etag,
-                    );
-                    await refresh();
-                    setMessage(
-                      "Independent disposition recorded. Nothing was published.",
-                    );
-                  });
-                }}
-              >
-                <label>
-                  Proposal disposition
-                  <select name="decision">
-                    <option value="needs_evidence">Needs evidence</option>
-                    <option value="accepted">Accept workflow output</option>
-                    <option value="rejected">Reject</option>
-                    <option value="deferred">Defer</option>
-                  </select>
-                </label>
-                <label>
-                  Proposal decision reason
-                  <textarea name="reason" required maxLength={4000} />
-                </label>
-                <label className="check">
-                  <input type="checkbox" required />I am independent and have no
-                  conflict in this proposal review.
-                </label>
-                <button disabled={busy}>Record proposal disposition</button>
-              </form>
-            )}
-            {p.disposition === "accepted" &&
+            {!p.expired &&
+              p.disposition === "pending" &&
+              p.reviewer_id === userId && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const f = new FormData(e.currentTarget);
+                    run(async () => {
+                      await api(
+                        `${base}/ai/proposals/${p.id}/decisions`,
+                        "POST",
+                        {
+                          decision: f.get("decision"),
+                          reason: f.get("reason"),
+                          conflict_declaration: "none",
+                        },
+                        p.etag,
+                      );
+                      await refresh();
+                      setMessage(
+                        "Independent disposition recorded. Nothing was published.",
+                      );
+                    });
+                  }}
+                >
+                  <label>
+                    Proposal disposition
+                    <select name="decision">
+                      <option value="needs_evidence">Needs evidence</option>
+                      <option value="accepted">Accept workflow output</option>
+                      <option value="rejected">Reject</option>
+                      <option value="deferred">Defer</option>
+                    </select>
+                  </label>
+                  <label>
+                    Proposal decision reason
+                    <textarea name="reason" required maxLength={4000} />
+                  </label>
+                  <label className="check">
+                    <input type="checkbox" required />I am independent and have
+                    no conflict in this proposal review.
+                  </label>
+                  <button disabled={busy}>Record proposal disposition</button>
+                </form>
+              )}
+            {!p.expired &&
+              p.disposition === "accepted" &&
               !p.published_refs &&
               p.requester_id === userId && (
                 <form

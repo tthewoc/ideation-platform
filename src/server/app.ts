@@ -59,7 +59,7 @@ export async function buildApp(logging = false) {
           ? 422
           : e.code === "57014"
             ? 503
-            : e.code === "23503" || e.code === "23505"
+            : e.code === "23503" || e.code === "23505" || e.code === "40001"
               ? 409
               : e.code === "42501"
                 ? 403

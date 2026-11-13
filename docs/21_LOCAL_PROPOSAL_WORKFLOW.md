@@ -54,12 +54,12 @@ only when `LOCAL_DEVELOPMENT=true`.
 | `POST ai/intake` | Optional `previous_proposal:{id,version}` for linked resubmission; `adapter:"fixture-v1"`, explicit acknowledgement, input refs, independent reviewer, instruction and budgets → queued run |
 | `GET ai/runs` | Latest 25 permitted runs with state, version and observed fixture units |
 | `POST ai/runs/:id/cancel` | Requester; run ETag; only queued/running work |
-| `GET ai/proposals` | Latest 25 private permitted candidates and dispositions |
+| `GET ai/proposals` | Latest 25 private permitted candidates, dispositions, review deadlines and derived expiry status |
 | `GET ai/proposals/:id/history` | Authorized run instruction, pinned manifest, fixture provenance, budgets, previous proposal link and immutable reviewer reasons; never worker tokens |
 | `POST ai/proposals/:id/decisions` | Named current reviewer, proposal ETag, decision/reason/no-conflict declaration |
 | `POST ai/proposals/:id/publish` | Requester, accepted proposal ETag and explicit audience confirmation |
 
-Migrations 014–019 add scoped run/proposal projections, immutable decisions,
+Migrations 014–020 add scoped run/proposal projections, immutable decisions,
 atomic allowance/publication functions, source reauthorization, state audit and
 linked resubmission. Runs persist fixture adapter/template/schema versions and
 explicit null provider/model metadata. This describes the local deterministic
@@ -77,7 +77,27 @@ pending and needs fresh review and separate publication. Pending, accepted and
 published proposals cannot be used as resubmission parents. Both the previous
 inputs and new inputs must remain readable; unavailable old inputs fail closed.
 Changing the reviewer requires a separate independent run, not linked resubmission.
-Configurable retention and expiry of private proposals remain pending.
+Private proposals now have a review deadline snapshotted at intake. Configure
+`FIXTURE_REVIEW_DAYS` to an integer from 1 through 90 (default 30); invalid values
+prevent startup. The setting applies to new runs only. Existing runs/proposals
+receive a 30-day deadline from their original creation time when migration 020 is
+applied. The deadline is separate from the worker's 60-second execution deadline.
+
+Expiry closes independent decisions, linked resubmission and publication for
+unpublished proposals. It is calculated with the database wall clock, so it works
+without a worker sweep or client refresh. Database triggers guard the final writes
+as well as API checks; failed publication/resubmission rolls back the entire
+transaction, including new objects or quota allocation. The UI shows the deadline
+and hides expired actions after refresh. A client with an old screen still receives
+a conflict from the server. Expiry is derived status, not a new scientific review
+disposition, and does not fabricate a reviewer decision or an audit event.
+
+Expired records remain private and readable under the same current source and
+membership policies. Their manifests, reviewer reasons and provenance are retained.
+Already-published knowledge is unaffected; its ordinary review/retraction controls
+continue to apply. No automatic deletion, quota refund or deadline extension is
+provided. Start a new independent run with current inputs after expiry. Production
+retention, deletion schedules and legal holds remain unresolved.
 
 ## Gates still required before slice 5 can be declared complete
 
@@ -121,7 +141,7 @@ manifest and decision, unauthorized history denial, invalid parent/version/revie
 rejection, null-version denial through the runtime database role, exactly-once
 quota allocation on replay and mandatory fresh review. The browser journey now
 requests evidence, inspects history, resubmits, independently accepts and separately
-publishes. Retention expiry and live-provider provenance remain outstanding.
+publishes. That checkpoint left expiry and live-provider provenance outstanding; the following increment adds local review deadlines.
 
 The linked-resubmission checkpoint passed type checking, production build,
 formatting, all 48 integration tests and all five browser journeys. A final
@@ -129,3 +149,18 @@ focused run also passed all eight proposal integration tests, including the
 null-version database guard. Restore verification passed with 950 revisions,
 27 artifact blobs and 1,748 prior receipts. These are synthetic workflow and
 recovery checks, not live-model or semantic-quality evaluation.
+
+## Review-window increment
+
+Migration 020 snapshots review deadlines and enforces expiry in database writes.
+Tests cover bounded configuration at the database boundary, API/SQL expiry denial,
+rollback of late publication and resubmission, preserved reasons/manifests, and
+continued access to already-published knowledge. The browser journey checks expired
+labels, unavailable review/resubmission actions and readable private history.
+These deadlines are workflow controls, not a production retention policy.
+
+Validation passed: type checking, production build, formatting, all 50 integration
+tests and all five browser journeys. The final focused proposal suite passed all
+10 tests, including a transaction opened before the review deadline that attempts
+its write after expiry. Restore verification passed for 1,171 revisions, 34
+artifact blobs and 2,236 prior receipts. Live-model evaluation remains gated.

@@ -7,7 +7,7 @@ import { db, authDb, transaction } from "../src/server/db.js";
 import { hash } from "../src/server/auth.js";
 import { config } from "../src/server/config.js";
 import { deliverFixture, generateFixture } from "../src/server/ai-fixture.js";
-const app = await buildApp();
+let app = await buildApp();
 await app.ready();
 const admin = new pg.Pool({ connectionString: process.env.DATABASE_ADMIN_URL }),
   worker = new pg.Pool({ connectionString: process.env.WORKER_DATABASE_URL });
@@ -494,6 +494,243 @@ test("linked resubmission preserves decisions and quota, requires fresh review, 
     history.json(),
   );
 });
+test("review windows are snapshotted, bounded and enforced without deleting private history", async () => {
+  // Isolate this test group from the earlier per-user HTTP rate-limit window.
+  await app.close();
+  app = await buildApp();
+  await app.ready();
+  const run = await queue();
+  const days = (await req(author, "GET", "/v1/ai/capabilities")).json()
+    .review_window_days;
+  assert.ok(days >= 1 && days <= 90);
+  const remaining =
+    (new Date(run.review_expires_at).getTime() - Date.now()) / 86400000;
+  assert.ok(remaining > days - 0.01 && remaining <= days);
+  const p = await proposal(run);
+  assert.equal(p.expired, false);
+  await admin.query(
+    "UPDATE ai_proposals SET expires_at=clock_timestamp()+interval '500 milliseconds' WHERE id=$1",
+    [p.id],
+  );
+  // The transaction starts before the deadline but attempts its write after it.
+  // A guard using transaction-stable now() would incorrectly allow this decision.
+  await assert.rejects(
+    transaction(reviewer.id, async (c) => {
+      assert.equal(
+        (
+          await c.query(
+            "SELECT expires_at>now() AS open FROM ai_proposals WHERE id=$1",
+            [p.id],
+          )
+        ).rows[0].open,
+        true,
+      );
+      await c.query("SELECT pg_sleep(0.6)");
+      await c.query("SELECT decide_fixture_proposal($1,$2,$3,$4,$5)", [
+        w,
+        p.id,
+        p.version,
+        "deferred",
+        "Crossed the deadline",
+      ]);
+    }),
+    { code: "40001" },
+  );
+  const expired = (await req(author, "GET", `${base}/ai/proposals`))
+    .json()
+    .items.find((x: any) => x.id === p.id);
+  assert.equal(expired.expired, true);
+  const denied = await req(
+    reviewer,
+    "POST",
+    `${base}/ai/proposals/${p.id}/decisions`,
+    { decision: "deferred", reason: "Too late", conflict_declaration: "none" },
+    p.etag,
+  );
+  assert.equal(denied.statusCode, 409, denied.body);
+  assert.equal(denied.json().error.code, "proposal_expired");
+  await assert.rejects(
+    transaction(reviewer.id, (c) =>
+      c.query("SELECT decide_fixture_proposal($1,$2,$3,$4,$5)", [
+        w,
+        p.id,
+        p.version,
+        "deferred",
+        "Too late through SQL",
+      ]),
+    ),
+    { code: "40001" },
+  );
+  const history = (
+    await req(author, "GET", `${base}/ai/proposals/${p.id}/history`)
+  ).json();
+  assert.equal(history.expired, true);
+  assert.equal(history.decisions.length, 0);
+  assert.equal(history.run.manifest[0].id, source.id);
+  assert.equal(
+    (await req(other, "GET", `${base}/ai/proposals/${p.id}/history`))
+      .statusCode,
+    404,
+  );
+  const quotaBefore = (
+    await admin.query(
+      "SELECT allocated_units FROM ai_usage WHERE workspace_id=$1 AND day=current_date",
+      [w],
+    )
+  ).rows[0].allocated_units;
+  await assert.rejects(
+    transaction(author.id, async (c) => {
+      await c.query("SELECT set_config('app.fixture_review_days','91',true)");
+      await c.query("SELECT queue_fixture_run($1,$2,$3,$4,$5,$6)", [
+        w,
+        reviewer.id,
+        "Invalid window",
+        JSON.stringify(requestBody().input_refs),
+        4000,
+        2000,
+      ]);
+    }),
+    { code: "22023" },
+  );
+  assert.equal(
+    (
+      await admin.query(
+        "SELECT allocated_units FROM ai_usage WHERE workspace_id=$1 AND day=current_date",
+        [w],
+      )
+    ).rows[0].allocated_units,
+    quotaBefore,
+  );
+});
+test("expired accepted and deferred proposals cannot publish or resubmit, including direct database calls", async () => {
+  const accepted = await accept(await proposal(await queue()));
+  await admin.query(
+    "UPDATE ai_proposals SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1",
+    [accepted.id],
+  );
+  const before = (
+    await admin.query(
+      "SELECT count(*)::int n FROM objects WHERE workspace_id=$1",
+      [w],
+    )
+  ).rows[0].n;
+  assert.equal(
+    (
+      await req(
+        author,
+        "POST",
+        `${base}/ai/proposals/${accepted.id}/publish`,
+        { confirmation: true },
+        accepted.etag,
+      )
+    ).statusCode,
+    409,
+  );
+  await assert.rejects(
+    transaction(author.id, (c) =>
+      c.query("SELECT publish_fixture_proposal($1,$2,$3)", [
+        w,
+        accepted.id,
+        accepted.version + 1,
+      ]),
+    ),
+    { code: "40001" },
+  );
+  assert.equal(
+    (
+      await admin.query(
+        "SELECT count(*)::int n FROM objects WHERE workspace_id=$1",
+        [w],
+      )
+    ).rows[0].n,
+    before,
+  );
+  const deferred = await proposal(await queue());
+  const d = await req(
+    reviewer,
+    "POST",
+    `${base}/ai/proposals/${deferred.id}/decisions`,
+    {
+      decision: "deferred",
+      reason: "Wait for evidence",
+      conflict_declaration: "none",
+    },
+    deferred.etag,
+  );
+  assert.equal(d.statusCode, 200, d.body);
+  await admin.query(
+    "UPDATE ai_proposals SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1",
+    [deferred.id],
+  );
+  const input = {
+    ...requestBody(),
+    previous_proposal: { id: deferred.id, version: deferred.version + 1 },
+  };
+  assert.equal(
+    (await req(author, "POST", `${base}/ai/intake`, input)).statusCode,
+    409,
+  );
+  const quotaBefore = (
+    await admin.query(
+      "SELECT allocated_units FROM ai_usage WHERE workspace_id=$1 AND day=current_date",
+      [w],
+    )
+  ).rows[0].allocated_units;
+  await assert.rejects(
+    transaction(author.id, (c) =>
+      c.query("SELECT resubmit_fixture_run($1,$2,$3,$4,$5,$6,$7,$8)", [
+        w,
+        deferred.id,
+        deferred.version + 1,
+        reviewer.id,
+        input.instruction,
+        JSON.stringify(input.input_refs),
+        4000,
+        2000,
+      ]),
+    ),
+    { code: "40001" },
+  );
+  assert.equal(
+    (
+      await admin.query(
+        "SELECT allocated_units FROM ai_usage WHERE workspace_id=$1 AND day=current_date",
+        [w],
+      )
+    ).rows[0].allocated_units,
+    quotaBefore,
+  );
+  const history = (
+    await req(author, "GET", `${base}/ai/proposals/${deferred.id}/history`)
+  ).json();
+  assert.equal(history.decisions[0].reason, "Wait for evidence");
+  const published = (
+    await admin.query(
+      "SELECT * FROM ai_proposals WHERE workspace_id=$1 AND published_refs IS NOT NULL LIMIT 1",
+      [w],
+    )
+  ).rows[0];
+  await admin.query(
+    "UPDATE ai_proposals SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1",
+    [published.id],
+  );
+  assert.equal(
+    (
+      await req(author, "GET", `${base}/ai/proposals/${published.id}/history`)
+    ).json().expired,
+    false,
+  );
+  assert.equal(
+    (
+      await req(
+        other,
+        "GET",
+        `${base}/objects/${published.published_refs[0].id}`,
+      )
+    ).statusCode,
+    200,
+  );
+});
 test("concurrent requests cannot exceed the atomic daily fixture quota", async () => {
   await admin.query(
     "UPDATE ai_usage SET allocated_units=94000 WHERE workspace_id=$1 AND day=current_date",
@@ -504,6 +741,10 @@ test("concurrent requests cannot exceed the atomic daily fixture quota", async (
     req(author, "POST", `${base}/ai/intake`, requestBody()),
   ]);
   assert.deepEqual(attempts.map((r) => r.statusCode).sort(), [202, 429]);
+  assert.equal(
+    attempts.find((r) => r.statusCode === 429)!.json().error.code,
+    "fixture_budget",
+  );
   assert.equal(
     (
       await admin.query(

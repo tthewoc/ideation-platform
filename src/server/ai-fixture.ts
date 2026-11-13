@@ -72,6 +72,7 @@ export async function deliverFixture(pool: pg.Pool) {
 export async function installFixture(app: FastifyInstance) {
   app.get("/v1/ai/capabilities", async () => ({
     live_ai: false,
+    review_window_days: config.local ? config.fixtureReviewDays : null,
     local_fixture: config.local,
     adapter: config.local ? "fixture-v1" : null,
   }));
@@ -122,10 +123,16 @@ export async function installFixture(app: FastifyInstance) {
         previous =
           (
             await c.query(
-              "SELECT * FROM ai_proposals WHERE workspace_id=$1 AND id=$2",
+              "SELECT *, (published_refs IS NULL AND expires_at<=clock_timestamp()) AS expired FROM ai_proposals WHERE workspace_id=$1 AND id=$2",
               [w, b.previous_proposal.id],
             )
           ).rows[0] ?? missing();
+        if (previous.expired)
+          fail(
+            409,
+            "proposal_expired",
+            "The previous proposal review window expired; start a new independent run",
+          );
         if (previous.requester_id !== req.session!.user_id)
           fail(403, "forbidden", "Only the original requester may resubmit");
         if (
@@ -147,6 +154,9 @@ export async function installFixture(app: FastifyInstance) {
             "Linked resubmission retains the independent reviewer",
           );
       }
+      await c.query("SELECT set_config('app.fixture_review_days',$1,true)", [
+        String(config.fixtureReviewDays),
+      ]);
       const args = [
         w,
         b.reviewer_id,
@@ -163,9 +173,18 @@ export async function installFixture(app: FastifyInstance) {
           previous ? [...args, previous.id, previous.version] : args,
         )
       ).rows[0].id;
+      const expires = (
+        await c.query("SELECT review_expires_at FROM ai_runs WHERE id=$1", [id])
+      ).rows[0].review_expires_at;
       await audit(c, req, w, "ai.fixture_queued", id);
       return {
-        body: { id, state: "queued", etag: etag(1), adapter: "fixture-v1" },
+        body: {
+          id,
+          state: "queued",
+          etag: etag(1),
+          adapter: "fixture-v1",
+          review_expires_at: expires,
+        },
         status: 202,
       };
     }),
@@ -177,7 +196,7 @@ export async function installFixture(app: FastifyInstance) {
       return {
         items: (
           await c.query(
-            "SELECT id,requester_id,adapter,state,version,input_units,output_units,deadline,created_at FROM ai_runs WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 25",
+            "SELECT id,requester_id,adapter,state,version,input_units,output_units,deadline,review_expires_at,created_at FROM ai_runs WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 25",
             [w],
           )
         ).rows.map((r) => ({ ...r, etag: etag(r.version) })),
@@ -215,7 +234,7 @@ export async function installFixture(app: FastifyInstance) {
       return {
         items: (
           await c.query(
-            "SELECT * FROM ai_proposals WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 25",
+            "SELECT *, (published_refs IS NULL AND expires_at<=clock_timestamp()) AS expired FROM ai_proposals WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 25",
             [w],
           )
         ).rows.map((p) => ({ ...p, etag: etag(p.version) })),
@@ -229,7 +248,7 @@ export async function installFixture(app: FastifyInstance) {
       const proposal =
         (
           await c.query(
-            "SELECT * FROM ai_proposals WHERE workspace_id=$1 AND id=$2",
+            "SELECT *, (published_refs IS NULL AND expires_at<=clock_timestamp()) AS expired FROM ai_proposals WHERE workspace_id=$1 AND id=$2",
             [w, uuid.parse(id)],
           )
         ).rows[0] ?? missing();
@@ -246,7 +265,12 @@ export async function installFixture(app: FastifyInstance) {
           [w, proposal.id],
         )
       ).rows;
-      return { run, decisions };
+      return {
+        run,
+        decisions,
+        expires_at: proposal.expires_at,
+        expired: proposal.expired,
+      };
     }),
   );
   app.post("/v1/workspaces/:w/ai/proposals/:id/decisions", async (req, reply) =>
@@ -267,11 +291,17 @@ export async function installFixture(app: FastifyInstance) {
       const p =
         (
           await c.query(
-            "SELECT * FROM ai_proposals WHERE workspace_id=$1 AND id=$2",
+            "SELECT *, (published_refs IS NULL AND expires_at<=clock_timestamp()) AS expired FROM ai_proposals WHERE workspace_id=$1 AND id=$2",
             [w, uuid.parse(params(req).id)],
           )
         ).rows[0] ?? missing();
       precondition(req, p.version);
+      if (p.expired)
+        fail(
+          409,
+          "proposal_expired",
+          "The proposal review window expired; start a new independent run",
+        );
       if (p.disposition !== "pending")
         fail(409, "already_decided", "Proposal already has a disposition");
       if (
@@ -311,11 +341,17 @@ export async function installFixture(app: FastifyInstance) {
       const p =
         (
           await c.query(
-            "SELECT * FROM ai_proposals WHERE workspace_id=$1 AND id=$2",
+            "SELECT *, (published_refs IS NULL AND expires_at<=clock_timestamp()) AS expired FROM ai_proposals WHERE workspace_id=$1 AND id=$2",
             [w, uuid.parse(params(req).id)],
           )
         ).rows[0] ?? missing();
       precondition(req, p.version);
+      if (p.expired)
+        fail(
+          409,
+          "proposal_expired",
+          "The proposal review window expired; start a new independent run",
+        );
       if (p.requester_id !== req.session!.user_id)
         fail(403, "forbidden", "Only the requester may publish");
       if (p.disposition !== "accepted" || p.published_refs)

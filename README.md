@@ -9,6 +9,10 @@ search and portable JSON export. Publication and scientific acceptance remain se
 See [slice 4 implementation and evidence](docs/20_RETRIEVAL_EXPORT_IMPLEMENTATION.md)
 and [local proposal-workflow preparation](docs/21_LOCAL_PROPOSAL_WORKFLOW.md).
 Live AI remains disabled; the optional local fixture makes no model calls.
+Local proposal review windows default to 30 days. Set `FIXTURE_REVIEW_DAYS=1..90`
+in `.local/dev.env` before starting the API to change deadlines for new runs.
+Expiry closes unpublished proposal actions while preserving private history;
+it does not delete records or affect already-published knowledge.
 
 ## Local development
 
