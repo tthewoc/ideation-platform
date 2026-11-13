@@ -1,7 +1,10 @@
 # Delivery roadmap and approval gate
 
 Status: the user authorized coding on 2026-11-12 after the documentation review.
-**Slice 1 development is underway.** See [implementation evidence](17_IMPLEMENTATION_STATUS.md).
+**Slices 1–4 have working implementations.** See the latest
+[implementation evidence](20_RETRIEVAL_EXPORT_IMPLEMENTATION.md). Slice 5 has
+[local workflow preparation](21_LOCAL_PROPOSAL_WORKFLOW.md); live AI and quality
+gates remain outstanding.
 The greenfield brief §15 requires completed documents and explicit human approval
 before application code, migrations or scaffolding. Review this set as one design.
 

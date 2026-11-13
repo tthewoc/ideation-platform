@@ -26,7 +26,9 @@ async function publish(page: Page) {
 }
 async function structured(page: Page, type: string, title: string) {
   await page.getByRole("button", { name: "New structured knowledge" }).click();
-  await page.getByLabel("Knowledge type").selectOption(type);
+  await page
+    .getByRole("combobox", { name: "Knowledge type", exact: true })
+    .selectOption(type);
   await page.getByLabel("Title", { exact: true }).fill(title);
 }
 async function saveStructured(page: Page) {

@@ -9,6 +9,9 @@ import { installAuth } from "./auth.js";
 import { installApi } from "./api.js";
 import { installGraph } from "./graph.js";
 import { installArtifacts } from "./artifacts.js";
+import { installRetrieval } from "./retrieval.js";
+import { installFixture } from "./ai-fixture.js";
+import { installExports } from "./exports.js";
 import { installResearch } from "./research.js";
 import { installReviews } from "./reviews.js";
 import { HttpError } from "./db.js";
@@ -91,6 +94,9 @@ export async function buildApp(logging = false) {
   await installReviews(app);
   await installArtifacts(app);
   await installResearch(app);
+  await installRetrieval(app);
+  await installExports(app);
+  await installFixture(app);
   await app.register(staticFiles, { root: resolve("dist") });
   app.setNotFoundHandler((req, reply) =>
     req.url.startsWith("/v1")

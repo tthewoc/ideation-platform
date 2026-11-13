@@ -2,12 +2,15 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import { StructuredEditor } from "./StructuredEditor";
+import { ProposalLab } from "./ProposalLab";
+import { Discovery } from "./Discovery";
 import { Research } from "./Research";
 import { GraphReview } from "./GraphReview";
 import { KnowledgeDetails } from "./KnowledgeDetails";
 type Atom = {
   id: string;
   type: string;
+  origin: string;
   content: any;
   revision: number;
   current_revision: number | null;
@@ -495,7 +498,11 @@ function App() {
                             ? "Submitted for review"
                             : "Workspace published"}
                       </span>
-                      <span>Human authored</span>
+                      <span>
+                        {selected.origin === "ai"
+                          ? "AI-origin workflow fixture"
+                          : "Human authored"}
+                      </span>
                       <span>{selected.review_state}</span>
                       <span>{selected.validity}</span>
                       <span>Freshness: {selected.freshness}</span>
@@ -518,7 +525,8 @@ function App() {
                     <p>{selected.content.scope ?? selected.content.context}</p>
                     <div className="actions">
                       {selected.author_id === session.user.id &&
-                        selected.type !== "artifact" && (
+                        selected.type !== "artifact" &&
+                        selected.origin !== "ai" && (
                           <button onClick={() => edit(selected)}>
                             {selected.has_draft
                               ? "Edit draft"
@@ -616,6 +624,30 @@ function App() {
                 )}
               </section>
             </div>
+            <ProposalLab
+              key={`proposal-${workspace}`}
+              base={base}
+              api={api}
+              objects={atoms}
+              userId={session.user.id}
+              onChange={refresh}
+              onSelect={(o) => {
+                O(o);
+                E(false);
+                H([]);
+              }}
+            />
+            <Discovery
+              key={`discovery-${workspace}`}
+              base={base}
+              api={api}
+              selected={selected}
+              onSelect={(o) => {
+                O(o);
+                E(false);
+                H([]);
+              }}
+            />
             <Research
               key={`research-${workspace}`}
               base={base}

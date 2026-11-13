@@ -1,11 +1,14 @@
 # Ideator
 
 A TypeScript/Fastify/React knowledge workspace backed by PostgreSQL 17. The first
-three development slices support private drafts, immutable publication, project
+four development slices support private drafts, immutable publication, project
 reuse, typed graph relationships, scoped evidence assessments, independent review,
-source freshness, consented research tasks and scanned artifacts. Publication and scientific acceptance remain separate.
+source freshness, consented research tasks, scanned artifacts, permission-scoped
+search and portable JSON export. Publication and scientific acceptance remain separate.
 
-See [slice 3 implementation and evidence](docs/19_RESEARCH_ARTIFACT_IMPLEMENTATION.md).
+See [slice 4 implementation and evidence](docs/20_RETRIEVAL_EXPORT_IMPLEMENTATION.md)
+and [local proposal-workflow preparation](docs/21_LOCAL_PROPOSAL_WORKFLOW.md).
+Live AI remains disabled; the optional local fixture makes no model calls.
 
 ## Local development
 

@@ -194,3 +194,8 @@ when an active login session survives workspace revocation.
 
 The concrete slice 3 routes, ETag scopes, upload limits and explicit result
 publication boundary are recorded in [the implementation contract](19_RESEARCH_ARTIFACT_IMPLEMENTATION.md).
+
+## Implemented retrieval and export contracts
+
+See [slice 4](20_RETRIEVAL_EXPORT_IMPLEMENTATION.md) for bounded lexical/graph
+retrieval, opaque cursors, revision export permissions and job/download reauthorization.

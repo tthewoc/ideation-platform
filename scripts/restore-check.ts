@@ -83,6 +83,18 @@ try {
       "task_results",
       "artifacts",
       "artifact_events",
+      "search_documents",
+      "search_state",
+      "search_cursors",
+      "export_jobs",
+      "export_policies",
+      "export_policy_events",
+      "revision_embeddings",
+      "ai_usage",
+      "ai_runs",
+      "ai_proposals",
+      "ai_decisions",
+      "ai_publications",
     ])
       assert.equal((await runtime.query(`SELECT * FROM ${table}`)).rowCount, 0);
     await runtime.query("ROLLBACK");
@@ -124,6 +136,22 @@ try {
     }
     console.log(
       `Restored and verified ${restoredBlobs} artifact blobs against immutable manifests.`,
+    );
+    assert.equal(
+      (
+        await admin.query(
+          "SELECT 1 FROM search_documents d LEFT JOIN publications p ON p.workspace_id=d.workspace_id AND p.object_id=d.object_id AND p.revision=d.revision WHERE p.object_id IS NULL",
+        )
+      ).rowCount,
+      0,
+    );
+    assert.equal(
+      (
+        await admin.query(
+          "SELECT 1 FROM revision_embeddings e JOIN revisions r ON r.workspace_id=e.workspace_id AND r.object_id=e.object_id AND r.revision=e.revision WHERE e.content_sha256<>encode(sha256(convert_to(r.content::text,'UTF8')),'hex')",
+        )
+      ).rowCount,
+      0,
     );
     const original = (
       await admin.query("SELECT count(*)::int n FROM event_receipts")

@@ -135,6 +135,19 @@ async function editable(c: PoolClient, req: FastifyRequest, w: string) {
   const o = await object(c, w, params(req).id);
   if (o.author_id !== req.session!.user_id)
     fail(403, "forbidden", "Only the author can edit this object");
+  if (
+    (
+      await c.query(
+        "SELECT 1 FROM ai_publications WHERE workspace_id=$1 AND object_id=$2",
+        [w, o.id],
+      )
+    ).rowCount
+  )
+    fail(
+      409,
+      "ai_origin_preserved",
+      "Published proposal outputs are immutable; create a new sourced interpretation",
+    );
   precondition(req, o.version);
   return o;
 }
@@ -198,7 +211,7 @@ export async function view(
     updated_at: r.rows[0]?.created_at,
     revision,
     content: r.rows[0]?.content,
-    origin: "human",
+    origin: r.rows[0].origin,
     review_state: status.review_state,
     validity: status.validity,
     state_etag: etag(status.version),

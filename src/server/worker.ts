@@ -1,4 +1,5 @@
 import "./config.js";
+import { deliverFixture } from "./ai-fixture.js";
 import { scanPendingArtifact } from "./artifact-scanner.js";
 import pg from "pg";
 import { pathToFileURL } from "node:url";
@@ -31,6 +32,34 @@ export async function deliver(pool: pg.Pool) {
     c.release();
   }
 }
+export async function deliverDiscovery(pool: pg.Pool) {
+  const c = await pool.connect();
+  try {
+    await c.query("SET statement_timeout='5000'");
+    for (const row of (await c.query("SELECT pending_search_workspaces() id"))
+      .rows) {
+      try {
+        await c.query("SELECT rebuild_search_batch($1)", [row.id]);
+        await c.query("SELECT report_search_batch($1,true)", [row.id]);
+      } catch {
+        await c.query("SELECT report_search_batch($1,false)", [row.id]);
+        console.error("Search batch deferred after failure");
+      }
+    }
+    for (const row of (await c.query("SELECT pending_export_jobs() id")).rows) {
+      try {
+        await c.query("SELECT prepare_export($1)", [row.id]);
+      } catch {
+        await c.query("SELECT fail_export($1)", [row.id]);
+        console.error("Export preparation failed closed");
+      }
+    }
+  } finally {
+    await c.query("RESET statement_timeout");
+    c.release();
+  }
+}
+
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
@@ -46,6 +75,8 @@ if (
   while (!stopped) {
     try {
       await deliver(pool);
+      await deliverDiscovery(pool);
+      await deliverFixture(pool);
       await scanPendingArtifact(pool);
     } catch {
       console.error("Outbox delivery failed; retrying");

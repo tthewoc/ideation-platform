@@ -89,6 +89,57 @@ try {
   authDb = loaded.authDb;
   app = await (await import("../src/server/app.js")).buildApp();
   await app.ready();
+  await admin.query("INSERT INTO search_state(workspace_id) VALUES($1)", [
+    workspace,
+  ]);
+  const rebuildSearch = async () => {
+    for (let i = 0; i < 210; i++) {
+      await admin!.query("SELECT rebuild_search_batch($1)", [workspace]);
+      if (
+        !(
+          await admin!.query(
+            "SELECT requested FROM search_state WHERE workspace_id=$1",
+            [workspace],
+          )
+        ).rows[0].requested
+      )
+        return;
+    }
+    throw new Error("Search rebuild exceeded bounded batch count");
+  };
+  await rebuildSearch();
+  const search = () =>
+    app.inject({
+      method: "GET",
+      url: `/v1/workspaces/${workspace}/search?q=Load`,
+      headers: { cookie: `session=${token}` },
+    });
+  const searchStart = Date.now(),
+    firstSearch = await search();
+  assert.equal(firstSearch.statusCode, 200, firstSearch.body);
+  assert.equal(firstSearch.json().items.length, 25);
+  assert.equal(firstSearch.json().retrieval_truncated, true);
+  console.log(
+    `Bounded lexical search over 100,000 publications: ${Date.now() - searchStart}ms.`,
+  );
+  const identities = (response: any) =>
+    response.json().items.map((x: any) => [x.id, x.revision, x.score]);
+  await admin.query(
+    "UPDATE search_state SET requested=true WHERE workspace_id=$1",
+    [workspace],
+  );
+  await admin.query("SELECT rebuild_search_batch($1)", [workspace]);
+  const during = await search();
+  assert.equal(during.statusCode, 200, during.body);
+  assert.equal(during.json().index_state, "updating");
+  assert.deepEqual(identities(during), identities(firstSearch));
+  await rebuildSearch();
+  const rebuilt = await search();
+  assert.equal(rebuilt.statusCode, 200, rebuilt.body);
+  assert.deepEqual(identities(rebuilt), identities(firstSearch));
+  console.log(
+    "Search generation rebuilt during reads with identical authorized identities and scores.",
+  );
   const query = async (body: unknown) =>
     app.inject({
       method: "POST",
@@ -135,6 +186,7 @@ try {
   );
   const revoked = await query({ root_ids: [hub], depth: 4 });
   assert.equal(revoked.statusCode, 404);
+  assert.equal((await search()).statusCode, 404);
   const count = await admin.query(
     "SELECT count(*)::integer n FROM objects WHERE workspace_id=$1",
     [workspace],

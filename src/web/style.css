@@ -408,3 +408,49 @@ caption {
   margin: 0.5rem 0;
   overflow-wrap: anywhere;
 }
+
+.discovery {
+  margin: 2rem 0;
+  padding: 1.5rem;
+  background: #fff;
+  border: 1px solid #cbd5cf;
+  border-radius: 12px;
+}
+.search-form {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr auto;
+  gap: 1rem;
+  align-items: end;
+}
+.search-results {
+  list-style: none;
+  padding: 0;
+}
+.search-results > li {
+  border-bottom: 1px solid #cbd5cf;
+  padding: 1rem 0;
+}
+.discovery button {
+  margin: 0.3rem 0.3rem 0.3rem 0;
+}
+@media (max-width: 900px) {
+  .search-form {
+    grid-template-columns: 1fr;
+  }
+}
+
+.proposal-lab {
+  margin: 2rem 0;
+  padding: 1.5rem;
+  border: 1px solid #cbd5cf;
+  border-radius: 12px;
+  background: #fff;
+}
+.proposal-lab article {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid #cbd5cf;
+}
+.proposal-lab select[multiple] {
+  min-height: 8rem;
+}

@@ -1,5 +1,8 @@
 # Slice 3: research coordination and artifacts
 
+Historical slice 3 checkpoint. Search and portable export are now described in
+[slice 4](20_RETRIEVAL_EXPORT_IMPLEMENTATION.md).
+
 The user's next-slice instruction authorizes the research/artifact scope from
 roadmap 14. This document extends the slice 2 checkpoint in document 18. Publication
 of these changes to GitHub remains a separate action.
