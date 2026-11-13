@@ -14,6 +14,10 @@ in `.local/dev.env` before starting the API to change deadlines for new runs.
 Expiry closes unpublished proposal actions while preserving private history;
 it does not delete records or affect already-published knowledge.
 
+The [private idea notebook](docs/23_PRIVATE_INTAKE_IMPLEMENTATION.md) supports
+unfinished human notes, clean attachment references and undo without deleting history.
+It creates no published knowledge and makes no AI calls.
+
 ## Local development
 
 Requires Node 24, npm and Docker Compose. Local setup also pulls a pinned ClamAV

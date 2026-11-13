@@ -204,3 +204,7 @@ Local proposal intake, linked resubmission and permission-checked run/review his
 are documented in [the local proposal workflow contract](21_LOCAL_PROPOSAL_WORKFLOW.md).
 These fixture routes remain disabled outside local development; they do not enable
 external AI or bypass independent review and explicit publication.
+
+The human-authored session/turn/undo routes are now implemented with the bounded
+contracts and private attachment policy in [private intake](23_PRIVATE_INTAKE_IMPLEMENTATION.md).
+The `/ai/formalise` route remains unimplemented; saving a notebook runs no AI.

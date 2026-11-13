@@ -166,3 +166,5 @@ its write after expiry. Restore verification passed for 1,171 revisions, 34
 artifact blobs and 2,236 prior receipts. Live-model evaluation remains gated.
 
 The next increment adds an [offline evaluation runner](22_EVALUATION_RUNNER.md). It validates supplied evidence and reports the current seed as blocked; it does not replace live execution, corpus expansion or independent human review.
+
+[Private conversational intake](23_PRIVATE_INTAKE_IMPLEMENTATION.md) now provides the human partial-save/undo foundation. It is not yet connected to AI formalisation or proposal source mappings.

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import { StructuredEditor } from "./StructuredEditor";
+import { Intake } from "./Intake";
 import { ProposalLab } from "./ProposalLab";
 import { Discovery } from "./Discovery";
 import { Research } from "./Research";
@@ -624,6 +625,12 @@ function App() {
                 )}
               </section>
             </div>
+            <Intake
+              key={`intake-${workspace}`}
+              base={base}
+              api={api}
+              objects={atoms}
+            />
             <ProposalLab
               key={`proposal-${workspace}`}
               base={base}
