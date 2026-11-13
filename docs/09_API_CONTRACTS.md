@@ -208,3 +208,7 @@ external AI or bypass independent review and explicit publication.
 The human-authored session/turn/undo routes are now implemented with the bounded
 contracts and private attachment policy in [private intake](23_PRIVATE_INTAKE_IMPLEMENTATION.md).
 The `/ai/formalise` route remains unimplemented; saving a notebook runs no AI.
+
+Private session outline reads and revision writes are implemented as documented in
+[the source-linked outline contract](24_PRIVATE_OUTLINE_IMPLEMENTATION.md). All
+outline content remains author-only and outside the published registry.

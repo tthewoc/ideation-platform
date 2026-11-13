@@ -101,3 +101,5 @@ application/tool tests and all six browser journeys passed. Restore verification
 passed for 1,485 revisions, 44 artifact blobs and 3,011 prior receipts, including
 runtime RLS on the new intake tables. These results cover human partial intake;
 no AI formalisation or model quality gate is claimed.
+
+The subsequent [private structured outline increment](24_PRIVATE_OUTLINE_IMPLEMENTATION.md) adds editable human interpretation with immutable source-turn mappings. It does not authorize broader review, AI dispatch or publication.

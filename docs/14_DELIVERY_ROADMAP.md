@@ -5,7 +5,7 @@ Status: the user authorized coding on 2026-11-12 after the documentation review.
 [implementation evidence](20_RETRIEVAL_EXPORT_IMPLEMENTATION.md). Slice 5 has
 [local workflow preparation with linked resubmission, review history and expiry](21_LOCAL_PROPOSAL_WORKFLOW.md); live AI and quality
 gates remain outstanding. An [offline evaluation runner](22_EVALUATION_RUNNER.md) now validates evidence and produces explicitly blocked seed-readiness reports.
-[Private conversational intake](23_PRIVATE_INTAKE_IMPLEMENTATION.md) now covers human partial saves and immutable undo; AI formalisation remains outstanding.
+[Private conversational intake](23_PRIVATE_INTAKE_IMPLEMENTATION.md) now covers human partial saves and immutable undo; [Private source-linked outlines](24_PRIVATE_OUTLINE_IMPLEMENTATION.md) add manual structured interpretation; AI formalisation remains outstanding.
 The greenfield brief §15 requires completed documents and explicit human approval
 before application code, migrations or scaffolding. Review this set as one design.
 

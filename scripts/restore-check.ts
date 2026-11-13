@@ -90,6 +90,8 @@ try {
       "export_policies",
       "export_policy_events",
       "revision_embeddings",
+      "intake_outline_revisions",
+      "intake_outline_sources",
       "intake_sessions",
       "intake_turns",
       "intake_undo_events",

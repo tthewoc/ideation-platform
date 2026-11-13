@@ -1,3 +1,4 @@
+import { IntakeOutline } from "./IntakeOutline";
 import { useState } from "react";
 import type { Api } from "./StructuredEditor";
 export function Intake({
@@ -227,6 +228,13 @@ export function Intake({
                 Restore active turn
               </button>
             </form>
+            <IntakeOutline
+              key={selected.id}
+              base={base}
+              api={api}
+              session={selected}
+              onChanged={() => load(selected.id)}
+            />
             <h4>Original turns</h4>
             <ol>
               {selected.turns.map((t: any) => (

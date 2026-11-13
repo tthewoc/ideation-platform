@@ -16,7 +16,9 @@ it does not delete records or affect already-published knowledge.
 
 The [private idea notebook](docs/23_PRIVATE_INTAKE_IMPLEMENTATION.md) supports
 unfinished human notes, clean attachment references and undo without deleting history.
-It creates no published knowledge and makes no AI calls.
+Its [source-linked structured outline](docs/24_PRIVATE_OUTLINE_IMPLEMENTATION.md)
+preserves quotations, human conjectures and revision history. It creates no
+published knowledge and makes no AI calls.
 
 ## Local development
 

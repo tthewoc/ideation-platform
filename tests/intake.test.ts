@@ -327,6 +327,17 @@ test("only permitted clean digital attachments can be pinned; restriction closes
   assert.deepEqual((await read(x)).turns[0].attachment_refs, [
     { id: own.id, revision: 1 },
   ]);
+  const outlined = await req(
+    x.owner,
+    "POST",
+    `${x.base}/sessions/${x.s.id}/outline`,
+    {
+      items: [outlineItem(n.json().turn_id)],
+      reason: "Interpret attached source",
+    },
+    n.json().etag,
+  );
+  assert.equal(outlined.statusCode, 201, outlined.body);
   const state = (
     await req(x.owner, "GET", `${x.base}/artifacts/${own.id}`)
   ).json();
@@ -370,6 +381,22 @@ test("only permitted clean digital attachments can be pinned; restriction closes
     ),
     { code: "42501" },
   );
+  assert.equal(
+    (await req(x.owner, "GET", `${x.base}/sessions/${x.s.id}/outline`))
+      .statusCode,
+    404,
+  );
+  await transaction(x.owner.id, async (c) => {
+    assert.equal(
+      (
+        await c.query(
+          "SELECT * FROM intake_outline_sources WHERE session_id=$1",
+          [x.s.id],
+        )
+      ).rowCount,
+      0,
+    );
+  });
   // A restricted session still consumes its owner's daily creation allowance.
   await transaction(x.owner.id, async (c) => {
     for (let i = 0; i < 49; i++)
@@ -476,5 +503,327 @@ test("bounded session history rejects over-limit writes atomically", async () =>
       )
     ).rows[0].n,
     0,
+  );
+});
+
+function outlineItem(turn: string, extra: any = {}) {
+  return {
+    id: randomUUID(),
+    kind: "claim",
+    text: "A possible explanation",
+    basis: "human_conjecture",
+    source_turn_ids: [turn],
+    rationale: "Tentative human interpretation",
+    steps: [],
+    ...extra,
+  };
+}
+async function outlineRead(
+  x: Awaited<ReturnType<typeof setup>>,
+  revision?: number,
+) {
+  const r = await req(
+    x.owner,
+    "GET",
+    `${x.base}/sessions/${x.s.id}/outline${revision ? `?revision=${revision}` : ""}`,
+  );
+  assert.equal(r.statusCode, 200, r.body);
+  return r.json();
+}
+test("private outlines pin exact turns, preserve revised interpretations and never publish notebook text", async () => {
+  const x = await setup(),
+    n = await note(x, x.s, "A source statement in the original notebook");
+  const item = outlineItem(n.turn_id, {
+      text: "A source statement",
+      basis: "quoted",
+    }),
+    body = { items: [item], reason: "First manual outline" },
+    key = randomUUID();
+  const path = `${x.base}/sessions/${x.s.id}/outline`;
+  const saved = await req(x.owner, "POST", path, body, n.etag, key);
+  assert.equal(saved.statusCode, 201, saved.body);
+  assert.deepEqual(
+    (await req(x.owner, "POST", path, body, n.etag, key)).json(),
+    saved.json(),
+  );
+  assert.equal(
+    (
+      await req(
+        x.owner,
+        "POST",
+        path,
+        { ...body, reason: "Changed replay" },
+        n.etag,
+        key,
+      )
+    ).statusCode,
+    409,
+  );
+  const first = await outlineRead(x);
+  assert.equal(first.origin, "human");
+  assert.deepEqual(first.sources, [{ item_id: item.id, turn_id: n.turn_id }]);
+  assert.equal(first.outside_active_branch, false);
+  assert.ok(first.missing_categories.includes("method"));
+  const changed = {
+    ...item,
+    text: "A human alternative interpretation",
+    basis: "human_conjecture",
+  };
+  const revision2 = await req(
+    x.owner,
+    "POST",
+    path,
+    { items: [changed], reason: "Distinguish interpretation from quote" },
+    saved.json().etag,
+  );
+  assert.equal(revision2.statusCode, 201, revision2.body);
+  const old = await outlineRead(x, 1);
+  assert.deepEqual(old.items, first.items);
+  assert.deepEqual(old.sources, first.sources);
+  assert.equal(old.latest_revision, 2);
+  const removed = await req(
+    x.owner,
+    "POST",
+    path,
+    { items: [], reason: "Remove from the current outline; retain history" },
+    revision2.json().etag,
+  );
+  assert.equal(removed.statusCode, 201, removed.body);
+  assert.equal((await outlineRead(x)).missing_categories.length, 8);
+  assert.equal((await outlineRead(x, 2)).items[0].text, changed.text);
+  assert.equal((await req(x.peer, "GET", path)).statusCode, 404);
+  await transaction(x.peer.id, async (c) => {
+    for (const t of ["intake_outline_revisions", "intake_outline_sources"])
+      assert.equal(
+        (await c.query(`SELECT * FROM ${t} WHERE session_id=$1`, [x.s.id]))
+          .rowCount,
+        0,
+      );
+  });
+  await assert.rejects(
+    transaction(x.owner.id, (c) =>
+      c.query("DELETE FROM intake_outline_sources WHERE session_id=$1", [
+        x.s.id,
+      ]),
+    ),
+    { code: "42501" },
+  );
+  await assert.rejects(
+    transaction(x.owner.id, (c) =>
+      c.query(
+        "UPDATE intake_outline_revisions SET items='[]' WHERE session_id=$1",
+        [x.s.id],
+      ),
+    ),
+    { code: "42501" },
+  );
+  assert.equal(
+    (
+      await admin.query(
+        "SELECT count(*)::int n FROM objects WHERE workspace_id=$1",
+        [x.w],
+      )
+    ).rows[0].n,
+    0,
+  );
+  assert.equal(
+    (
+      await admin.query(
+        "SELECT count(*)::int n FROM audit_events WHERE target_id=$1 AND action='intake.outline_saved'",
+        [x.s.id],
+      )
+    ).rows[0].n,
+    3,
+  );
+});
+test("outline schema, quotations and source mappings are checked in HTTP and restricted database functions", async () => {
+  const x = await setup(),
+    n = await note(x, x.s, "Literal source wording"),
+    path = `${x.base}/sessions/${x.s.id}/outline`;
+  const good = outlineItem(n.turn_id),
+    badQuote = { ...good, text: "Invented citation", basis: "quoted" };
+  for (const items of [
+    [badQuote],
+    [{ ...good, kind: "task", rationale: "" }],
+    [{ ...good, kind: "method", steps: [] }],
+    [{ ...good, source_turn_ids: [randomUUID()] }],
+    [good, { ...good, id: good.id.toUpperCase() }],
+  ]) {
+    assert.equal(
+      (
+        await req(
+          x.owner,
+          "POST",
+          path,
+          { items, reason: "Invalid test" },
+          n.etag,
+        )
+      ).statusCode,
+      422,
+    );
+  }
+  await assert.rejects(
+    transaction(x.owner.id, (c) =>
+      c.query("SELECT save_intake_outline($1,$2,$3,$4,$5,$6)", [
+        x.w,
+        x.s.id,
+        2,
+        JSON.stringify([badQuote]),
+        "Invalid quotation",
+        "outline-test",
+      ]),
+    ),
+    { code: "22023" },
+  );
+  await assert.rejects(
+    transaction(x.owner.id, (c) =>
+      c.query("SELECT save_intake_outline($1,$2,$3,$4,$5,$6)", [
+        x.w,
+        x.s.id,
+        2,
+        JSON.stringify([{ ...good, source_turn_ids: [randomUUID()] }]),
+        "Unknown turn",
+        "outline-test",
+      ]),
+    ),
+    { code: "42501" },
+  );
+  assert.equal((await outlineRead(x)).revision, 0);
+  await assert.rejects(
+    transaction(x.owner.id, (c) =>
+      c.query("SELECT save_intake_outline($1,$2,$3,$4,$5,$6)", [
+        x.w,
+        x.s.id,
+        null,
+        JSON.stringify([good]),
+        "Missing version",
+        "outline-test",
+      ]),
+    ),
+    { code: "40001" },
+  );
+  const items = [
+    "claim",
+    "assumption",
+    "alternative_hypothesis",
+    "question",
+    "ethical_constraint",
+    "success_criterion",
+    "method",
+    "task",
+  ].map((kind) =>
+    outlineItem(n.turn_id, {
+      kind,
+      steps:
+        kind === "method"
+          ? ["Measure the baseline", "Compare the proposed condition"]
+          : [],
+    }),
+  );
+  const saved = await req(
+    x.owner,
+    "POST",
+    path,
+    { items, reason: "Manual entries for all categories" },
+    n.etag,
+  );
+  assert.equal(saved.statusCode, 201, saved.body);
+  assert.deepEqual((await outlineRead(x)).missing_categories, []);
+  await admin.query(
+    "UPDATE intake_sessions SET outline_version=50 WHERE id=$1",
+    [x.s.id],
+  );
+  assert.equal(
+    (
+      await req(
+        x.owner,
+        "POST",
+        path,
+        { items, reason: "Over limit" },
+        saved.json().etag,
+      )
+    ).statusCode,
+    429,
+  );
+  await assert.rejects(
+    transaction(x.owner.id, (c) =>
+      c.query("SELECT save_intake_outline($1,$2,$3,$4,$5,$6)", [
+        x.w,
+        x.s.id,
+        3,
+        JSON.stringify(items),
+        "Over limit",
+        "outline-test",
+      ]),
+    ),
+    { code: "23514" },
+  );
+});
+test("outline edits share notebook concurrency checks and warn when undo changes the active source branch", async () => {
+  const x = await setup(),
+    first = await note(x, x.s, "First possibility"),
+    second = await note(x, first, "Second possibility");
+  const path = `${x.base}/sessions/${x.s.id}/outline`,
+    body = {
+      items: [outlineItem(second.turn_id)],
+      reason: "Interpret the second possibility",
+    };
+  const attempts = await Promise.all([
+    req(x.owner, "POST", path, body, second.etag),
+    req(
+      x.owner,
+      "POST",
+      path,
+      { ...body, reason: "Concurrent interpretation" },
+      second.etag,
+    ),
+  ]);
+  assert.deepEqual(attempts.map((r) => r.statusCode).sort(), [201, 412]);
+  const current = await outlineRead(x);
+  assert.equal(current.revision, 1);
+  const undo = await req(
+    x.owner,
+    "POST",
+    `${x.base}/sessions/${x.s.id}/undo`,
+    { target_turn: first.turn_id, reason: "Return to earlier source branch" },
+    current.session_etag,
+  );
+  assert.equal(undo.statusCode, 200, undo.body);
+  const after = await outlineRead(x);
+  assert.equal(after.outside_active_branch, true);
+  assert.deepEqual(after.items, current.items);
+  assert.deepEqual(after.sources, current.sources);
+  assert.equal(
+    (await req(x.owner, "POST", path, body, current.session_etag)).statusCode,
+    412,
+  );
+  await admin.query(
+    "UPDATE memberships SET revoked_at=now() WHERE workspace_id=$1 AND user_id=$2",
+    [x.w, x.owner.id],
+  );
+  assert.equal((await req(x.owner, "GET", path)).statusCode, 404);
+  await transaction(x.owner.id, async (c) => {
+    assert.equal(
+      (
+        await c.query(
+          "SELECT * FROM intake_outline_revisions WHERE session_id=$1",
+          [x.s.id],
+        )
+      ).rowCount,
+      0,
+    );
+  });
+  await assert.rejects(
+    transaction(x.owner.id, (c) =>
+      c.query("SELECT save_intake_outline($1,$2,$3,$4,$5,$6)", [
+        x.w,
+        x.s.id,
+        4,
+        JSON.stringify(body.items),
+        "Revoked",
+        "outline-test",
+      ]),
+    ),
+    { code: "42501" },
   );
 });

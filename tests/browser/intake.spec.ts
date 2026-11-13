@@ -78,6 +78,49 @@ test("private partial notes preserve wording, undo branches without deletion and
     await expect(
       selected.getByRole("article", { name: "Saved turn 2" }),
     ).toContainText("Active");
+    const outline = selected.getByRole("region", {
+      name: "Private structured outline",
+    });
+    await outline
+      .getByLabel("Outline statement")
+      .fill("Second thought, still incomplete");
+    await outline
+      .getByLabel("Relation to original wording")
+      .selectOption("quoted");
+    await outline
+      .getByLabel("Source notebook turns")
+      .selectOption({ label: "Turn 2: Second thought, still incomplete" });
+    await outline
+      .getByLabel("Reason for outline revision")
+      .fill("Quote the original second turn");
+    await outline
+      .getByRole("button", { name: "Add outline item", exact: true })
+      .click();
+    const claim = outline.getByRole("article", { name: "Claim outline item" });
+    await expect(claim).toContainText("Exact quotation");
+    await claim.getByRole("button", { name: "Edit outline item" }).click();
+    await outline
+      .getByLabel("Outline statement")
+      .fill("A possible alternative explanation");
+    await outline
+      .getByLabel("Relation to original wording")
+      .selectOption("human_conjecture");
+    await outline
+      .getByLabel("Reason for outline revision")
+      .fill("Separate interpretation from original wording");
+    await outline.getByRole("button", { name: "Save item revision" }).click();
+    await expect(claim).toContainText("Human conjecture");
+    await outline
+      .getByRole("button", { name: "Inspect outline revision 1", exact: true })
+      .click();
+    await expect(claim).toContainText("Second thought, still incomplete");
+    await expect(
+      outline.getByRole("button", { name: "Add outline item", exact: true }),
+    ).toHaveCount(0);
+    await outline
+      .getByRole("button", { name: "Refresh latest outline" })
+      .click();
+    await expect(claim).toContainText("A possible alternative explanation");
     await selected
       .getByLabel("Restore saved turn")
       .selectOption({ label: "Turn 1" });
@@ -91,6 +134,9 @@ test("private partial notes preserve wording, undo branches without deletion and
     await expect(
       selected.getByRole("article", { name: "Saved turn 2" }),
     ).toContainText("Second thought");
+    await expect(outline).toContainText(
+      "Some sources are outside the active notebook branch",
+    );
     await selected.getByLabel("Original note").fill("Alternative continuation");
     await selected.getByRole("button", { name: "Save partial note" }).click();
     await expect(
@@ -135,6 +181,28 @@ test("private partial notes preserve wording, undo branches without deletion and
         exact: true,
       }),
     ).toHaveCount(0);
+    await expect(
+      outline.getByRole("article", { name: "Claim outline item" }),
+    ).toContainText("A possible alternative explanation");
+    await outline.getByLabel("Outline category").selectOption("task");
+    await outline
+      .getByLabel("Outline statement")
+      .fill("Measure the baseline before changing the conditions");
+    await outline
+      .getByLabel("Source notebook turns")
+      .selectOption({ label: "Turn 2: Second thought, still incomplete" });
+    await outline
+      .getByLabel("Why this task is necessary")
+      .fill("A baseline is needed to compare the tentative explanation");
+    await outline
+      .getByLabel("Reason for outline revision")
+      .fill("Record a justified research task");
+    await outline
+      .getByRole("button", { name: "Add outline item", exact: true })
+      .click();
+    await expect(
+      outline.getByRole("article", { name: "Research task outline item" }),
+    ).toContainText("A baseline is needed");
     const result = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
       .analyze();
