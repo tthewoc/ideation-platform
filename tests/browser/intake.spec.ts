@@ -237,6 +237,9 @@ test("private partial notes preserve wording, undo branches without deletion and
       packet.getByRole("region", { name: "Granted turn 2" }),
     ).toHaveCount(1);
     await peerReviews
+      .getByLabel("Outline review disposition")
+      .selectOption("accepted");
+    await peerReviews
       .getByLabel("Outline review reason")
       .fill("Add a discriminating baseline comparison");
     await peerReviews
@@ -263,6 +266,22 @@ test("private partial notes preserve wording, undo branches without deletion and
     await expect(authorReviews).toContainText(
       "Add a discriminating baseline comparison",
     );
+    await authorReviews
+      .getByLabel("Claim title", { exact: true })
+      .fill("Baseline comparison");
+    await authorReviews
+      .getByLabel("Claim scope", { exact: true })
+      .fill("Synthetic baseline only");
+    await authorReviews.getByLabel("Language code").fill("en");
+    await authorReviews
+      .getByRole("button", { name: "Preview registry claim" })
+      .click();
+    const preview = authorReviews.getByRole("region", {
+      name: "Private claim preview",
+    });
+    await expect(preview).toContainText("A possible alternative explanation");
+    await expect(preview).toContainText("Synthetic baseline only");
+    await expect(preview).toContainText("Source turns: 2");
     await authorReviews
       .getByLabel("Reason for revoking outline access")
       .fill("Close this limited review audience");

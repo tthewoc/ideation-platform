@@ -1290,3 +1290,92 @@ test("racing outline review and revocation cannot produce a decision under a rev
     0,
   );
 });
+
+test("author previews a registry claim from the accepted revision with explicit scope and private provenance", async () => {
+  const x = await reviewSetup(),
+    r = await grantReview(x),
+    url = `${x.base}/outline-reviews/${r.id}`,
+    path = url + "/claim-preview";
+  const fields = {
+    item_id: x.item.id,
+    title: "Tentative baseline claim",
+    scope: "Only the synthetic notebook observation",
+    language: "en",
+  };
+  assert.equal(
+    (await req(x.owner, "POST", path, fields, r.etag)).statusCode,
+    409,
+  );
+  const accepted = await req(
+    x.peer,
+    "POST",
+    url + "/decisions",
+    {
+      disposition: "accepted",
+      conflict_declaration: "none",
+      reason: "Reviewed source wording",
+    },
+    r.etag,
+  );
+  assert.equal(accepted.statusCode, 200, accepted.body);
+  const version = accepted.json().etag;
+  assert.equal(
+    (await req(x.peer, "POST", path, fields, version)).statusCode,
+    403,
+  );
+  assert.equal(
+    (await req(x.owner, "POST", path, fields, r.etag)).statusCode,
+    412,
+  );
+  assert.equal(
+    (
+      await req(
+        x.owner,
+        "POST",
+        path,
+        { ...fields, proposition: "Replaced wording" },
+        version,
+      )
+    ).statusCode,
+    422,
+  );
+  assert.equal(
+    (
+      await req(
+        x.owner,
+        "POST",
+        path,
+        { ...fields, item_id: randomUUID() },
+        version,
+      )
+    ).statusCode,
+    422,
+  );
+  const result = await req(x.owner, "POST", path, fields, version);
+  assert.equal(result.statusCode, 200, result.body);
+  assert.equal(result.headers["cache-control"], "no-store");
+  assert.equal(result.json().content.proposition, x.item.text);
+  assert.equal(result.json().content.scope, fields.scope);
+  assert.deepEqual(result.json().provenance.source_turn_ids, [x.first.turn_id]);
+  assert.ok(!result.body.includes("Uncited confidential"));
+  assert.equal(
+    (
+      await admin.query(
+        "SELECT count(*)::int n FROM objects WHERE workspace_id=$1",
+        [x.w],
+      )
+    ).rows[0].n,
+    0,
+  );
+  const revoked = await req(
+    x.owner,
+    "POST",
+    url + "/revoke",
+    { reason: "Close access" },
+    version,
+  );
+  assert.equal(
+    (await req(x.owner, "POST", path, fields, revoked.json().etag)).statusCode,
+    409,
+  );
+});

@@ -107,6 +107,115 @@ export function OutlineReviews({
                     </li>
                   ))}
                 </ul>
+                {r.author_id === userId &&
+                  !r.expired &&
+                  r.state === "decided" &&
+                  packets[r.id].decision?.disposition === "accepted" &&
+                  packets[r.id].outline.items.some(
+                    (i: any) => i.kind === "claim",
+                  ) && (
+                    <form
+                      onChange={() =>
+                        setPackets((old) => ({
+                          ...old,
+                          [r.id]: { ...old[r.id], preview: null },
+                        }))
+                      }
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const f = new FormData(e.currentTarget);
+                        run(async () => {
+                          setPackets((old) => ({
+                            ...old,
+                            [r.id]: { ...old[r.id], preview: null },
+                          }));
+                          const preview = await api(
+                            `${base}/outline-reviews/${r.id}/claim-preview`,
+                            "POST",
+                            Object.fromEntries(f),
+                            r.etag,
+                          );
+                          setPackets((old) => ({
+                            ...old,
+                            [r.id]: { ...old[r.id], preview },
+                          }));
+                        });
+                      }}
+                    >
+                      <h4>Prepare a private claim preview</h4>
+                      <label>
+                        Reviewed claim
+                        <select name="item_id">
+                          {packets[r.id].outline.items
+                            .filter((i: any) => i.kind === "claim")
+                            .map((i: any) => (
+                              <option key={i.id} value={i.id}>
+                                {i.text}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                      <label>
+                        Claim title
+                        <input name="title" required maxLength={200} />
+                      </label>
+                      <label>
+                        Claim scope
+                        <textarea name="scope" required maxLength={50000} />
+                      </label>
+                      <label>
+                        Language code
+                        <input
+                          name="language"
+                          required
+                          minLength={2}
+                          maxLength={20}
+                        />
+                      </label>
+                      <button disabled={busy}>Preview registry claim</button>
+                      {packets[r.id].preview && (
+                        <section aria-label="Private claim preview">
+                          <h5>{packets[r.id].preview.content.title}</h5>
+                          <p>{packets[r.id].preview.content.proposition}</p>
+                          <p>
+                            Author-supplied scope:{" "}
+                            {packets[r.id].preview.content.scope}
+                          </p>
+                          <p>
+                            Language: {packets[r.id].preview.content.language}
+                          </p>
+                          <p>
+                            Reviewed basis:{" "}
+                            {packets[r.id].preview.provenance.basis.replaceAll(
+                              "_",
+                              " ",
+                            )}
+                          </p>
+                          <p>Reasoning: {packets[r.id].preview.content.body}</p>
+                          <p>
+                            Source turns:{" "}
+                            {packets[r.id].preview.provenance.source_turn_ids
+                              .map(
+                                (id: string) =>
+                                  packets[r.id].source_turns.find(
+                                    (t: any) => t.id === id,
+                                  ).sequence,
+                              )
+                              .join(", ")}
+                          </p>
+                          <ul>
+                            {packets[r.id].preview.content.source_refs.map(
+                              (ref: any) => (
+                                <li key={ref.id + ":" + ref.revision}>
+                                  Artifact {ref.id} · revision {ref.revision}
+                                </li>
+                              ),
+                            )}
+                          </ul>
+                        </section>
+                      )}
+                    </form>
+                  )}
                 <h4>Granted original turns</h4>
                 {packets[r.id].source_turns.map((t: any) => (
                   <section key={t.id} aria-label={`Granted turn ${t.sequence}`}>

@@ -3,7 +3,7 @@ import type { PoolClient } from "pg";
 import { z } from "zod";
 import { mutation, params, workspace, precondition, etag } from "./api.js";
 import { transaction, fail, missing } from "./db.js";
-import { uuid, reason } from "./schema.js";
+import { claim, uuid, reason, type Ref } from "./schema.js";
 const columns =
   "id,outline_revision,author_id,reviewer_id,state,version,expires_at,created_at,(expires_at<=clock_timestamp()) AS expired";
 async function request(c: PoolClient, w: string, id: string) {
@@ -15,6 +15,16 @@ async function request(c: PoolClient, w: string, id: string) {
       )
     ).rows[0] ?? missing()
   );
+}
+async function checkedPacket(c: PoolClient, w: string, id: string) {
+  try {
+    return (
+      await c.query("SELECT outline_review_packet($1,$2) packet", [w, id])
+    ).rows[0].packet;
+  } catch (e) {
+    if ((e as any).code === "42501") missing();
+    throw e;
+  }
 }
 export async function installIntakeReview(app: FastifyInstance) {
   app.post(
@@ -120,17 +130,86 @@ export async function installIntakeReview(app: FastifyInstance) {
       const { w, id } = params(req);
       await workspace(c, w);
       await request(c, w, id);
-      let packet: any;
-      try {
-        packet = (
-          await c.query("SELECT outline_review_packet($1,$2) packet", [w, id])
-        ).rows[0].packet;
-      } catch (e) {
-        if ((e as any).code === "42501") missing();
-        throw e;
-      }
+      const packet = await checkedPacket(c, w, id);
       return { ...packet, etag: etag(packet.version) };
     }),
+  );
+  app.post(
+    "/v1/workspaces/:w/outline-reviews/:id/claim-preview",
+    async (req, reply) =>
+      transaction(req.session!.user_id, async (c) => {
+        const { w, id } = params(req);
+        const fields = z
+          .object({
+            item_id: uuid,
+            title: claim.shape.title,
+            scope: claim.shape.scope,
+            language: claim.shape.language.trim().min(2),
+          })
+          .strict()
+          .parse(req.body);
+        await workspace(c, w, true);
+        const r = await request(c, w, id);
+        if (r.author_id !== req.session!.user_id)
+          fail(
+            403,
+            "author_required",
+            "Only the notebook author can prepare a claim",
+          );
+        precondition(req, r.version);
+        const packet = await checkedPacket(c, w, id);
+        if (
+          packet.state !== "decided" ||
+          packet.expired ||
+          packet.decision?.disposition !== "accepted"
+        )
+          fail(
+            409,
+            "accepted_review_required",
+            "Select an accepted review with an active grant",
+          );
+        const item = packet.outline.items.find(
+          (entry: { id: string; kind: string }) =>
+            entry.id === fields.item_id && entry.kind === "claim",
+        );
+        if (!item)
+          fail(
+            422,
+            "invalid_claim_item",
+            "Choose a claim from the reviewed revision",
+          );
+        const pins = new Map<string, Ref>();
+        for (const turn of packet.source_turns) {
+          if (item.source_turn_ids.includes(turn.id))
+            for (const ref of turn.attachment_refs)
+              pins.set(ref.id + ":" + ref.revision, ref);
+        }
+        const content = claim.parse({
+          title: fields.title,
+          language: fields.language,
+          scope: fields.scope,
+          body: item.rationale,
+          proposition: item.text,
+          qualifiers: [item.basis],
+          source_refs: [...pins.values()],
+        });
+        reply.header("Cache-Control", "no-store");
+        return {
+          type: "claim",
+          schema_version: 1,
+          content,
+          provenance: {
+            review_id: id,
+            outline_revision: packet.outline.revision,
+            item_id: item.id,
+            source_turn_ids: item.source_turn_ids,
+            basis: item.basis,
+          },
+          audience: "author",
+          reviewed_fields: ["proposition", "body", "qualifiers"],
+          author_supplied_fields: ["title", "scope", "language"],
+        };
+      }),
   );
   app.post(
     "/v1/workspaces/:w/outline-reviews/:id/decisions",

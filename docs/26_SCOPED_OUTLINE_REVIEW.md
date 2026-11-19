@@ -109,3 +109,18 @@ application/tool tests and all six browser journeys passed. Restore verification
 passed for 1,970 revisions, 59 artifact blobs and 4,890 prior receipts, including
 runtime RLS on the new review tables. No live-model quality or publication gate
 is claimed by these checks.
+
+## Private registry claim preview
+
+After an independent reviewer accepts an outline, its author can select a claim
+in the review inbox and supply a title, scope and language. The preview uses the
+registry claim schema. Its proposition, rationale and qualifier come from the
+pinned outline item. Its provenance identifies the review, outline revision,
+item and exact source turns. Published artifact revisions from those turns become
+registry source references. Author-supplied fields remain labelled separately.
+
+`POST /v1/workspaces/:w/outline-reviews/:id/claim-preview` takes the current
+review ETag and `{item_id,title,scope,language}`. The server checks current source
+access, grant expiry, acceptance and author identity. The response is private
+and ephemeral. Persisting candidates, confirming a publication audience, and
+atomically publishing a batch with its provenance remain future steps.
