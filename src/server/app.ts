@@ -10,6 +10,7 @@ import { installApi } from "./api.js";
 import { installGraph } from "./graph.js";
 import { installArtifacts } from "./artifacts.js";
 import { installRetrieval } from "./retrieval.js";
+import { installIntakeReview } from "./intake-review.js";
 import { installIntakeOutline } from "./intake-outline.js";
 import { installIntake } from "./intake.js";
 import { installFixture } from "./ai-fixture.js";
@@ -101,6 +102,7 @@ export async function buildApp(logging = false) {
   await installFixture(app);
   await installIntake(app);
   await installIntakeOutline(app);
+  await installIntakeReview(app);
   await app.register(staticFiles, { root: resolve("dist") });
   app.setNotFoundHandler((req, reply) =>
     req.url.startsWith("/v1")

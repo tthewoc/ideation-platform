@@ -18,7 +18,9 @@ The [private idea notebook](docs/23_PRIVATE_INTAKE_IMPLEMENTATION.md) supports
 unfinished human notes, clean attachment references and undo without deleting history.
 Its [source-linked structured outline](docs/24_PRIVATE_OUTLINE_IMPLEMENTATION.md)
 preserves quotations, human conjectures and revision history. It creates no
-published knowledge and makes no AI calls.
+published knowledge and makes no AI calls. Authors can explicitly grant
+[scoped independent outline review](docs/26_SCOPED_OUTLINE_REVIEW.md) without
+opening the rest of their notebook.
 
 ## Local development
 

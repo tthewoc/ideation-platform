@@ -321,6 +321,99 @@ export function IntakeOutline({
               </li>
             ))}
           </ol>
+          {outline.revision > 0 && outline.items.length > 0 && (
+            <section aria-label="Share outline for independent review">
+              <h5>Request a scoped independent review</h5>
+              <p>
+                This shares outline revision {outline.revision} and the full
+                original text of its cited turns with one current workspace
+                reviewer. Other notebook turns and later outline revisions
+                remain private. Attached artifacts must already be published and
+                available; this action never publishes attachments.
+              </p>
+              <details>
+                <summary>Review disclosure preview</summary>
+                {session.turns
+                  .filter((t: any) =>
+                    outline.sources.some((s: any) => s.turn_id === t.id),
+                  )
+                  .map((t: any) => (
+                    <div key={t.id}>
+                      <strong>Original turn {t.sequence}</strong>
+                      <p className="body">
+                        {t.original_text || "Attachment-only source"}
+                      </p>
+                      {t.attachment_refs.length > 0 && (
+                        <ul
+                          aria-label={`Attachment revisions for turn ${t.sequence}`}
+                        >
+                          {t.attachment_refs.map(
+                            (
+                              ref: { id: string; revision: number },
+                              index: number,
+                            ) => (
+                              <li key={index}>
+                                Artifact {ref.id} · revision {ref.revision}
+                              </li>
+                            ),
+                          )}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+              </details>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget);
+                  run(async () => {
+                    await api(
+                      `${base}/sessions/${session.id}/outline-reviews`,
+                      "POST",
+                      {
+                        outline_revision: outline.revision,
+                        reviewer_id: f.get("reviewer"),
+                        expires_days: Number(f.get("days")),
+                        purpose: f.get("purpose"),
+                        share_sources_confirmation: true,
+                      },
+                      outline.session_etag,
+                    );
+                    await onChanged();
+                    setMessage(
+                      "Review grant created for the selected revision and cited turns. Use Outline review inbox to inspect or revoke it.",
+                    );
+                  });
+                }}
+              >
+                <label>
+                  Independent outline reviewer ID
+                  <input name="reviewer" required />
+                </label>
+                <label>
+                  Review grant duration in days
+                  <input
+                    name="days"
+                    type="number"
+                    min={1}
+                    max={30}
+                    defaultValue={7}
+                    required
+                  />
+                </label>
+                <label>
+                  Purpose of outline review
+                  <textarea name="purpose" maxLength={4000} required />
+                </label>
+                <label className="check">
+                  <input type="checkbox" required />
+                  Share this outline revision and its cited original turns with
+                  the named reviewer.
+                </label>
+                <button disabled={busy}>Grant scoped outline review</button>
+              </form>
+            </section>
+          )}
           <h5>Outline revision history</h5>
           <ul>
             {outline.history.map((r: any) => (

@@ -102,3 +102,5 @@ the final outline browser journey passed against the rebuilt UI. Restore
 verification passed for 1,612 revisions, 48 artifact blobs and 3,455 prior
 receipts, including runtime RLS on the new tables. These results do not establish
 AI quality or authorize publication of private source material.
+
+The subsequent [scoped outline review increment](26_SCOPED_OUTLINE_REVIEW.md) adds explicit, revocable review grants for selected immutable outline/source packets. Broader publication and AI formalisation remain pending.

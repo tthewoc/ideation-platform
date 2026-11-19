@@ -827,3 +827,466 @@ test("outline edits share notebook concurrency checks and warn when undo changes
     { code: "42501" },
   );
 });
+
+async function reviewSetup() {
+  const x = await setup(),
+    first = await note(x, x.s, "Explicitly shared source text"),
+    second = await note(
+      x,
+      first,
+      "Uncited confidential note must stay private",
+    );
+  const item = outlineItem(first.turn_id),
+    out = await req(
+      x.owner,
+      "POST",
+      `${x.base}/sessions/${x.s.id}/outline`,
+      { items: [item], reason: "Prepare selected source for review" },
+      second.etag,
+    );
+  assert.equal(out.statusCode, 201, out.body);
+  return {
+    ...x,
+    first,
+    second,
+    item,
+    outline: out.json(),
+    reviewBody: {
+      outline_revision: 1,
+      reviewer_id: x.peer.id,
+      expires_days: 7,
+      purpose: "Independent review of this pinned interpretation",
+      share_sources_confirmation: true,
+    },
+  };
+}
+async function grantReview(x: Awaited<ReturnType<typeof reviewSetup>>) {
+  const r = await req(
+    x.owner,
+    "POST",
+    `${x.base}/sessions/${x.s.id}/outline-reviews`,
+    x.reviewBody,
+    x.outline.etag,
+  );
+  assert.equal(r.statusCode, 201, r.body);
+  return r.json();
+}
+test("explicit outline review grants expose only pinned content and independent decisions publish nothing", async () => {
+  const x = await reviewSetup(),
+    path = `${x.base}/sessions/${x.s.id}/outline-reviews`;
+  assert.equal(
+    (
+      await req(
+        x.owner,
+        "POST",
+        path,
+        { ...x.reviewBody, share_sources_confirmation: false },
+        x.outline.etag,
+      )
+    ).statusCode,
+    422,
+  );
+  assert.equal(
+    (
+      await req(
+        x.owner,
+        "POST",
+        path,
+        { ...x.reviewBody, reviewer_id: x.owner.id },
+        x.outline.etag,
+      )
+    ).statusCode,
+    403,
+  );
+  const key = randomUUID(),
+    created = await req(
+      x.owner,
+      "POST",
+      path,
+      x.reviewBody,
+      x.outline.etag,
+      key,
+    );
+  assert.equal(created.statusCode, 201, created.body);
+  const r = created.json(),
+    url = `${x.base}/outline-reviews/${r.id}`;
+  assert.deepEqual(
+    (
+      await req(x.owner, "POST", path, x.reviewBody, x.outline.etag, key)
+    ).json(),
+    r,
+  );
+  const packet = (await req(x.peer, "GET", url)).json();
+  assert.equal(packet.outline.revision, 1);
+  assert.equal(packet.source_turns.length, 1);
+  assert.equal(packet.source_turns[0].id, x.first.turn_id);
+  assert.equal(packet.source_turns[0].parent_turn, undefined);
+  assert.ok(!JSON.stringify(packet).includes("Uncited confidential"));
+  assert.equal(
+    (await req(x.peer, "GET", `${x.base}/sessions/${x.s.id}`)).statusCode,
+    404,
+  );
+  assert.equal(
+    (await req(x.peer, "GET", `${x.base}/sessions/${x.s.id}/outline`))
+      .statusCode,
+    404,
+  );
+  await transaction(x.peer.id, async (c) => {
+    assert.equal(
+      (
+        await c.query("SELECT * FROM intake_turns WHERE session_id=$1", [
+          x.s.id,
+        ])
+      ).rowCount,
+      0,
+    );
+    assert.equal(
+      (
+        await c.query(
+          "SELECT * FROM intake_outline_revisions WHERE session_id=$1",
+          [x.s.id],
+        )
+      ).rowCount,
+      0,
+    );
+  });
+  await assert.rejects(
+    transaction(x.peer.id, (c) =>
+      c.query("SELECT purpose FROM intake_review_requests WHERE id=$1", [r.id]),
+    ),
+    { code: "42501" },
+  );
+  const edit = await req(
+    x.owner,
+    "POST",
+    `${x.base}/sessions/${x.s.id}/outline`,
+    {
+      items: [{ ...x.item, text: "New private interpretation" }],
+      reason: "Private subsequent change",
+    },
+    r.session_etag,
+  );
+  assert.equal(edit.statusCode, 201, edit.body);
+  assert.ok(
+    !JSON.stringify((await req(x.peer, "GET", url)).json()).includes(
+      "New private interpretation",
+    ),
+  );
+  const decision = {
+    disposition: "accepted",
+    reason:
+      "Reviewed the pinned source; no scientific acceptance or publication",
+    conflict_declaration: "none",
+  };
+  assert.equal(
+    (await req(x.owner, "POST", `${url}/decisions`, decision, r.etag))
+      .statusCode,
+    403,
+  );
+  const decisionKey = randomUUID(),
+    accepted = await req(
+      x.peer,
+      "POST",
+      `${url}/decisions`,
+      decision,
+      r.etag,
+      decisionKey,
+    );
+  assert.equal(accepted.statusCode, 200, accepted.body);
+  assert.deepEqual(
+    (
+      await req(
+        x.peer,
+        "POST",
+        `${url}/decisions`,
+        decision,
+        r.etag,
+        decisionKey,
+      )
+    ).json(),
+    accepted.json(),
+  );
+  assert.equal(
+    (await req(x.owner, "GET", url)).json().decision.disposition,
+    "accepted",
+  );
+  assert.equal(
+    (
+      await admin.query(
+        "SELECT count(*)::int n FROM objects WHERE workspace_id=$1",
+        [x.w],
+      )
+    ).rows[0].n,
+    0,
+  );
+  await assert.rejects(
+    transaction(x.peer.id, (c) =>
+      c.query("DELETE FROM intake_review_decisions WHERE request_id=$1", [
+        r.id,
+      ]),
+    ),
+    { code: "42501" },
+  );
+  const revoked = await req(
+    x.owner,
+    "POST",
+    `${url}/revoke`,
+    { reason: "Close the review audience" },
+    accepted.json().etag,
+  );
+  assert.equal(revoked.statusCode, 200, revoked.body);
+  assert.equal((await req(x.peer, "GET", url)).statusCode, 404);
+  assert.equal(
+    (await req(x.peer, "GET", `${x.base}/outline-reviews`)).json().items.length,
+    0,
+  );
+  assert.equal(
+    (await req(x.owner, "GET", url)).json().decision.disposition,
+    "accepted",
+  );
+  await assert.rejects(
+    transaction(x.peer.id, (c) =>
+      c.query("SELECT outline_review_packet($1,$2)", [x.w, r.id]),
+    ),
+    { code: "42501" },
+  );
+});
+test("expired, removed-reviewer and revoked-author grants close packet reads and decisions", async () => {
+  for (const change of ["expiry", "reviewer", "author"]) {
+    const x = await reviewSetup(),
+      r = await grantReview(x),
+      url = `${x.base}/outline-reviews/${r.id}`;
+    if (change === "expiry")
+      await admin.query(
+        "UPDATE intake_review_requests SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1",
+        [r.id],
+      );
+    if (change === "reviewer")
+      await admin.query(
+        "UPDATE memberships SET roles=ARRAY['member'] WHERE workspace_id=$1 AND user_id=$2",
+        [x.w, x.peer.id],
+      );
+    if (change === "author")
+      await admin.query(
+        "UPDATE memberships SET revoked_at=now() WHERE workspace_id=$1 AND user_id=$2",
+        [x.w, x.owner.id],
+      );
+    assert.equal((await req(x.peer, "GET", url)).statusCode, 404, change);
+    assert.equal(
+      (
+        await req(
+          x.peer,
+          "POST",
+          `${url}/decisions`,
+          {
+            disposition: "accepted",
+            reason: "Too late",
+            conflict_declaration: "none",
+          },
+          r.etag,
+        )
+      ).statusCode,
+      404,
+    );
+    await assert.rejects(
+      transaction(x.peer.id, (c) =>
+        c.query("SELECT decide_outline_review($1,$2,$3,$4,$5,$6,$7)", [
+          x.w,
+          r.id,
+          1,
+          "accepted",
+          "Too late",
+          "none",
+          "review-test",
+        ]),
+      ),
+      { code: "42501" },
+    );
+    await transaction(x.peer.id, async (c) => {
+      assert.equal(
+        (
+          await c.query("SELECT id FROM intake_review_requests WHERE id=$1", [
+            r.id,
+          ])
+        ).rowCount,
+        0,
+      );
+      assert.equal(
+        (
+          await c.query(
+            "SELECT * FROM intake_review_decisions WHERE request_id=$1",
+            [r.id],
+          )
+        ).rowCount,
+        0,
+      );
+    });
+  }
+});
+test("outline review never implicitly shares private attachments and source restriction closes existing grants", async () => {
+  const x = await setup();
+  const a = await req(x.owner, "POST", `${x.base}/artifacts`, {
+    title: "Synthetic review attachment",
+    body: "Permission fixture",
+    language: "en",
+    source_refs: [],
+    kind: "digital",
+    filename: "note.txt",
+    media_type: "text/plain",
+    byte_size: 1,
+    sha256: "b".repeat(64),
+    license: "CC0-1.0",
+  });
+  assert.equal(a.statusCode, 201, a.body);
+  const artifact = a.json().object;
+  // Trusted metadata fixture; the research suite exercises actual scanner bytes.
+  await admin.query(
+    "UPDATE artifacts SET state='available',scan_verdict='clean' WHERE object_id=$1",
+    [artifact.id],
+  );
+  const n = await note(x, x.s, "A note about the artifact", [
+    { id: artifact.id, revision: 1 },
+  ]);
+  const o = await req(
+    x.owner,
+    "POST",
+    `${x.base}/sessions/${x.s.id}/outline`,
+    { items: [outlineItem(n.turn_id)], reason: "Interpret artifact note" },
+    n.etag,
+  );
+  assert.equal(o.statusCode, 201, o.body);
+  const body = {
+      outline_revision: 1,
+      reviewer_id: x.peer.id,
+      expires_days: 7,
+      purpose: "Review permitted artifact provenance",
+      share_sources_confirmation: true,
+    },
+    path = `${x.base}/sessions/${x.s.id}/outline-reviews`;
+  assert.equal(
+    (await req(x.owner, "POST", path, body, o.json().etag)).statusCode,
+    403,
+  );
+  const published = await req(
+    x.owner,
+    "POST",
+    `${x.base}/objects/${artifact.id}/publish`,
+    { revision: 1, confirmation: true },
+    artifact.etag,
+  );
+  assert.equal(published.statusCode, 200, published.body);
+  // Publication creates a new immutable revision; it must not expose the private pin.
+  assert.equal(
+    (await req(x.owner, "POST", path, body, o.json().etag)).statusCode,
+    403,
+  );
+  const current = await read(x);
+  const publicNote = await note(
+    x,
+    current,
+    "Note citing the explicitly published revision",
+    [{ id: artifact.id, revision: published.json().revision }],
+  );
+  const publicOutline = await req(
+    x.owner,
+    "POST",
+    `${x.base}/sessions/${x.s.id}/outline`,
+    {
+      items: [outlineItem(publicNote.turn_id)],
+      reason: "Pin the published artifact revision",
+    },
+    publicNote.etag,
+  );
+  assert.equal(publicOutline.statusCode, 201, publicOutline.body);
+  const grant = await req(
+    x.owner,
+    "POST",
+    path,
+    { ...body, outline_revision: 2 },
+    publicOutline.json().etag,
+  );
+  assert.equal(grant.statusCode, 201, grant.body);
+  const r = grant.json(),
+    url = `${x.base}/outline-reviews/${r.id}`;
+  assert.equal((await req(x.peer, "GET", url)).statusCode, 200);
+  const state = (
+    await req(x.owner, "GET", `${x.base}/artifacts/${artifact.id}`)
+  ).json();
+  assert.equal(
+    (
+      await req(
+        x.owner,
+        "POST",
+        `${x.base}/artifacts/${artifact.id}/transitions`,
+        { state: "restricted", reason: "Source permission withdrawn" },
+        state.etag,
+      )
+    ).statusCode,
+    200,
+  );
+  assert.equal((await req(x.peer, "GET", url)).statusCode, 404);
+  assert.equal((await req(x.owner, "GET", url)).statusCode, 404);
+  assert.equal(
+    (
+      await req(
+        x.owner,
+        "POST",
+        `${url}/revoke`,
+        { reason: "Revoke unavailable source packet" },
+        r.etag,
+      )
+    ).statusCode,
+    200,
+  );
+});
+test("racing outline review and revocation cannot produce a decision under a revoked grant", async () => {
+  const x = await reviewSetup(),
+    r = await grantReview(x),
+    url = `${x.base}/outline-reviews/${r.id}`;
+  const results = await Promise.all([
+    req(
+      x.peer,
+      "POST",
+      `${url}/decisions`,
+      {
+        disposition: "needs_evidence",
+        reason: "Need a discriminating test",
+        conflict_declaration: "none",
+      },
+      r.etag,
+    ),
+    req(
+      x.owner,
+      "POST",
+      `${url}/revoke`,
+      { reason: "Close pending review" },
+      r.etag,
+    ),
+  ]);
+  assert.equal(results.filter((r) => r.statusCode === 200).length, 1);
+  assert.ok(
+    results.every((r) => [200, 404, 412].includes(r.statusCode)),
+    results.map((r) => r.body).join("\n"),
+  );
+  const state = (
+    await admin.query("SELECT state FROM intake_review_requests WHERE id=$1", [
+      r.id,
+    ])
+  ).rows[0].state;
+  const decisions = (
+    await admin.query(
+      "SELECT count(*)::int n FROM intake_review_decisions WHERE request_id=$1",
+      [r.id],
+    )
+  ).rows[0].n;
+  assert.equal(decisions, state === "revoked" ? 0 : 1);
+  assert.equal(
+    (
+      await admin.query(
+        "SELECT count(*)::int n FROM audit_events a LEFT JOIN outbox o ON o.event_id=a.id WHERE a.target_id=$1 AND o.event_id IS NULL",
+        [r.id],
+      )
+    ).rows[0].n,
+    0,
+  );
+});

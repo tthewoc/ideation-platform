@@ -90,6 +90,8 @@ try {
       "export_policies",
       "export_policy_events",
       "revision_embeddings",
+      "intake_review_requests",
+      "intake_review_decisions",
       "intake_outline_revisions",
       "intake_outline_sources",
       "intake_sessions",
@@ -101,7 +103,14 @@ try {
       "ai_decisions",
       "ai_publications",
     ])
-      assert.equal((await runtime.query(`SELECT * FROM ${table}`)).rowCount, 0);
+      assert.equal(
+        (
+          await runtime.query(
+            `SELECT ${table === "intake_review_requests" ? "id" : "*"} FROM ${table}`,
+          )
+        ).rowCount,
+        0,
+      );
     await runtime.query("ROLLBACK");
     const sample = (
       await admin.query(

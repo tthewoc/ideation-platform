@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import { StructuredEditor } from "./StructuredEditor";
+import { OutlineReviews } from "./OutlineReviews";
 import { Intake } from "./Intake";
 import { ProposalLab } from "./ProposalLab";
 import { Discovery } from "./Discovery";
@@ -630,6 +631,12 @@ function App() {
               base={base}
               api={api}
               objects={atoms}
+            />
+            <OutlineReviews
+              key={`outline-reviews-${workspace}`}
+              base={base}
+              api={api}
+              userId={session.user.id}
             />
             <ProposalLab
               key={`proposal-${workspace}`}

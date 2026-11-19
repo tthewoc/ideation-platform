@@ -302,8 +302,35 @@ test("revocation immediately blocks history, listings and database reads", async
   );
 });
 test("outbox consumer is repeatable and uses its restricted worker role", async () => {
-  await deliver(worker);
-  await deliver(worker);
+  // Persistent development data and other suites may leave more than two batches.
+  const pending = (
+    await worker.query(
+      "SELECT count(*)::int n FROM outbox WHERE delivered_at IS NULL",
+    )
+  ).rows[0].n;
+  for (let batch = 0; batch < Math.ceil(pending / 100); batch++)
+    await deliver(worker);
+  assert.equal(await deliver(worker), 0);
+  const event = (
+    await worker.query(
+      "SELECT event_id FROM outbox WHERE workspace_id=$1 LIMIT 1",
+      [w],
+    )
+  ).rows[0].event_id;
+  // Simulate redelivery after a crash: the same event must keep exactly one receipt.
+  await worker.query("UPDATE outbox SET delivered_at=NULL WHERE event_id=$1", [
+    event,
+  ]);
+  assert.equal(await deliver(worker), 1);
+  assert.equal(
+    (
+      await worker.query(
+        "SELECT count(*)::int n FROM event_receipts WHERE event_id=$1",
+        [event],
+      )
+    ).rows[0].n,
+    1,
+  );
   assert.equal(
     (
       await worker.query(

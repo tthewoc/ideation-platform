@@ -212,3 +212,7 @@ The `/ai/formalise` route remains unimplemented; saving a notebook runs no AI.
 Private session outline reads and revision writes are implemented as documented in
 [the source-linked outline contract](24_PRIVATE_OUTLINE_IMPLEMENTATION.md). All
 outline content remains author-only and outside the published registry.
+
+Explicit outline review requests, checked source packets, independent dispositions
+and revocation are implemented in [the scoped review contract](26_SCOPED_OUTLINE_REVIEW.md).
+These grants do not publish private notebook material.

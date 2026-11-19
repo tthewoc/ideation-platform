@@ -1,0 +1,216 @@
+import { useState } from "react";
+import type { Api } from "./StructuredEditor";
+export function OutlineReviews({
+  base,
+  api,
+  userId,
+}: {
+  base: string;
+  api: Api;
+  userId: string;
+}) {
+  const [items, setItems] = useState<any[]>([]),
+    [packets, setPackets] = useState<Record<string, any>>({}),
+    [next, setNext] = useState<string | null>(null),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [message, setMessage] = useState("");
+  async function run(fn: () => Promise<void>) {
+    setBusy(true);
+    setError("");
+    try {
+      await fn();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function refresh(after?: string) {
+    setPackets({});
+    const r = await api(
+      `${base}/outline-reviews${after ? `?after=${after}` : ""}`,
+    );
+    setItems((old) => (after ? [...old, ...r.items] : r.items));
+    setNext(r.next);
+  }
+  return (
+    <details className="intake-panel">
+      <summary>Outline review inbox</summary>
+      <section aria-label="Independent outline reviews">
+        <h2>Review explicitly shared outlines</h2>
+        <p>
+          Each grant covers one immutable outline revision and only its cited
+          original turns. It does not open the author's notebook. A disposition
+          publishes nothing and does not establish scientific acceptance.
+        </p>
+        <p role="alert">{error}</p>
+        <p role="log" aria-label="Outline review update">
+          {message}
+        </p>
+        <button disabled={busy} onClick={() => run(() => refresh())}>
+          Refresh outline reviews
+        </button>
+        {items.map((r) => (
+          <article key={r.id} aria-label={`Outline review ${r.id.slice(0, 8)}`}>
+            <h3>
+              Outline revision {r.outline_revision} ·{" "}
+              {r.expired ? "expired" : r.state}
+            </h3>
+            <p>Review grant ends {new Date(r.expires_at).toLocaleString()}.</p>
+            <button
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  setPackets((p) => {
+                    const next = { ...p };
+                    delete next[r.id];
+                    return next;
+                  });
+                  const packet = await api(`${base}/outline-reviews/${r.id}`);
+                  setPackets((p) => ({ ...p, [r.id]: packet }));
+                })
+              }
+            >
+              Inspect shared outline and sources
+            </button>
+            {packets[r.id] && (
+              <section aria-label="Shared outline packet">
+                <p>Purpose: {packets[r.id].purpose}</p>
+                <ul>
+                  {packets[r.id].outline.items.map((i: any) => (
+                    <li key={i.id}>
+                      <strong>
+                        {i.kind.replaceAll("_", " ")} ·{" "}
+                        {i.basis.replaceAll("_", " ")}
+                      </strong>
+                      <p className="body">{i.text}</p>
+                      {i.rationale && <p>{i.rationale}</p>}
+                      {i.steps.length > 0 && (
+                        <ol>
+                          {i.steps.map((s: string, n: number) => (
+                            <li key={n}>{s}</li>
+                          ))}
+                        </ol>
+                      )}
+                      <p>
+                        Source turns:{" "}
+                        {i.source_turn_ids
+                          .map(
+                            (id: string) =>
+                              packets[r.id].source_turns.find(
+                                (t: any) => t.id === id,
+                              )?.sequence,
+                          )
+                          .join(", ")}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+                <h4>Granted original turns</h4>
+                {packets[r.id].source_turns.map((t: any) => (
+                  <section key={t.id} aria-label={`Granted turn ${t.sequence}`}>
+                    <strong>Turn {t.sequence}</strong>
+                    <p className="body">
+                      {t.original_text || "Attachment-only source"}
+                    </p>
+                    {t.attachment_refs.map((a: any) => (
+                      <p key={`${a.id}:${a.revision}`}>
+                        Published artifact {a.id} · r{a.revision}
+                      </p>
+                    ))}
+                  </section>
+                ))}
+                {packets[r.id].decision && (
+                  <p>
+                    Recorded disposition: {packets[r.id].decision.disposition} ·{" "}
+                    {packets[r.id].decision.reason}
+                  </p>
+                )}
+              </section>
+            )}
+            {r.reviewer_id === userId &&
+              r.state === "pending" &&
+              !r.expired &&
+              packets[r.id] && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const f = new FormData(e.currentTarget);
+                    run(async () => {
+                      await api(
+                        `${base}/outline-reviews/${r.id}/decisions`,
+                        "POST",
+                        {
+                          disposition: f.get("decision"),
+                          reason: f.get("reason"),
+                          conflict_declaration: "none",
+                        },
+                        r.etag,
+                      );
+                      await refresh();
+                      setMessage(
+                        "Independent outline disposition recorded. Nothing published.",
+                      );
+                    });
+                  }}
+                >
+                  <label>
+                    Outline review disposition
+                    <select name="decision">
+                      <option value="needs_evidence">Needs evidence</option>
+                      <option value="accepted">
+                        Accept this outline revision
+                      </option>
+                      <option value="rejected">Reject</option>
+                      <option value="deferred">Defer</option>
+                    </select>
+                  </label>
+                  <label>
+                    Outline review reason
+                    <textarea name="reason" maxLength={4000} required />
+                  </label>
+                  <label className="check">
+                    <input type="checkbox" required />I am independent and have
+                    no conflict in this outline review.
+                  </label>
+                  <button disabled={busy}>Record outline review</button>
+                </form>
+              )}
+            {r.author_id === userId && r.state !== "revoked" && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget);
+                  run(async () => {
+                    await api(
+                      `${base}/outline-reviews/${r.id}/revoke`,
+                      "POST",
+                      { reason: f.get("reason") },
+                      r.etag,
+                    );
+                    await refresh();
+                    setMessage(
+                      "Outline access revoked. Earlier decisions remain recorded.",
+                    );
+                  });
+                }}
+              >
+                <label>
+                  Reason for revoking outline access
+                  <textarea name="reason" maxLength={4000} required />
+                </label>
+                <button disabled={busy}>Revoke outline access</button>
+              </form>
+            )}
+          </article>
+        ))}
+        {next && (
+          <button disabled={busy} onClick={() => run(() => refresh(next))}>
+            Load more outline reviews
+          </button>
+        )}
+      </section>
+    </details>
+  );
+}

@@ -59,9 +59,11 @@ export function Intake({
       <section aria-label="Private conversational intake">
         <h2>Capture an unfinished idea</h2>
         <p>
-          Only you can read this notebook. Save fragments in your own words
-          before filling structured fields. No AI runs and nothing is published.
-          Saved turns and undo reasons remain in history.
+          Only you can browse this notebook. Selected outline revisions and
+          cited turns can be shared through explicit, time-limited review
+          grants. Save fragments in your own words before filling structured
+          fields. No AI runs and nothing is published. Saved turns and undo
+          reasons remain in history.
         </p>
         <p role="alert">{error}</p>
         <p role="log" aria-label="Intake update">

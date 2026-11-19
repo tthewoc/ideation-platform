@@ -203,6 +203,79 @@ test("private partial notes preserve wording, undo branches without deletion and
     await expect(
       outline.getByRole("article", { name: "Research task outline item" }),
     ).toContainText("A baseline is needed");
+    await outline.getByLabel("Independent outline reviewer ID").fill(peerId);
+    await outline
+      .getByLabel("Purpose of outline review")
+      .fill("Review this exact outline and its cited second turn");
+    await outline
+      .getByLabel(
+        "Share this outline revision and its cited original turns with the named reviewer.",
+      )
+      .check();
+    await outline
+      .getByRole("button", { name: "Grant scoped outline review" })
+      .click();
+    await expect(
+      outline.getByRole("log", { name: "Outline update" }),
+    ).toContainText("Review grant created");
+    await peer.getByText("Outline review inbox", { exact: true }).click();
+    const peerReviews = peer.getByRole("region", {
+      name: "Independent outline reviews",
+    });
+    await peerReviews
+      .getByRole("button", { name: "Refresh outline reviews" })
+      .click();
+    await peerReviews
+      .getByRole("button", { name: "Inspect shared outline and sources" })
+      .click();
+    const packet = peerReviews.getByRole("region", {
+      name: "Shared outline packet",
+    });
+    await expect(packet).toContainText("Second thought, still incomplete");
+    await expect(packet).not.toContainText("未完成");
+    await expect(
+      packet.getByRole("region", { name: "Granted turn 2" }),
+    ).toHaveCount(1);
+    await peerReviews
+      .getByLabel("Outline review reason")
+      .fill("Add a discriminating baseline comparison");
+    await peerReviews
+      .getByLabel(
+        "I am independent and have no conflict in this outline review.",
+      )
+      .check();
+    await peerReviews
+      .getByRole("button", { name: "Record outline review" })
+      .click();
+    await expect(
+      peerReviews.getByRole("log", { name: "Outline review update" }),
+    ).toContainText("Nothing published");
+    await page.getByText("Outline review inbox", { exact: true }).click();
+    const authorReviews = page.getByRole("region", {
+      name: "Independent outline reviews",
+    });
+    await authorReviews
+      .getByRole("button", { name: "Refresh outline reviews" })
+      .click();
+    await authorReviews
+      .getByRole("button", { name: "Inspect shared outline and sources" })
+      .click();
+    await expect(authorReviews).toContainText(
+      "Add a discriminating baseline comparison",
+    );
+    await authorReviews
+      .getByLabel("Reason for revoking outline access")
+      .fill("Close this limited review audience");
+    await authorReviews
+      .getByRole("button", { name: "Revoke outline access" })
+      .click();
+    await expect(
+      authorReviews.getByRole("log", { name: "Outline review update" }),
+    ).toContainText("access revoked");
+    await peerReviews
+      .getByRole("button", { name: "Refresh outline reviews" })
+      .click();
+    await expect(peerReviews.getByRole("article")).toHaveCount(0);
     const result = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
       .analyze();
