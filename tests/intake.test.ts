@@ -828,7 +828,7 @@ test("outline edits share notebook concurrency checks and warn when undo changes
   );
 });
 
-async function reviewSetup() {
+async function reviewSetup(includeHypothesis = false) {
   const x = await setup(),
     first = await note(x, x.s, "Explicitly shared source text"),
     second = await note(
@@ -837,11 +837,18 @@ async function reviewSetup() {
       "Uncited confidential note must stay private",
     );
   const item = outlineItem(first.turn_id),
+    alternative = outlineItem(first.turn_id, {
+      kind: "alternative_hypothesis",
+      text: "A different interpretation",
+    }),
     out = await req(
       x.owner,
       "POST",
       `${x.base}/sessions/${x.s.id}/outline`,
-      { items: [item], reason: "Prepare selected source for review" },
+      {
+        items: includeHypothesis ? [item, alternative] : [item],
+        reason: "Prepare selected source for review",
+      },
       second.etag,
     );
   assert.equal(out.statusCode, 201, out.body);
@@ -850,6 +857,7 @@ async function reviewSetup() {
     first,
     second,
     item,
+    alternative,
     outline: out.json(),
     reviewBody: {
       outline_revision: 1,
@@ -1292,7 +1300,7 @@ test("racing outline review and revocation cannot produce a decision under a rev
 });
 
 test("author previews a registry claim from the accepted revision with explicit scope and private provenance", async () => {
-  const x = await reviewSetup(),
+  const x = await reviewSetup(true),
     r = await grantReview(x),
     url = `${x.base}/outline-reviews/${r.id}`,
     path = url + "/claim-preview";
@@ -1455,11 +1463,35 @@ test("author previews a registry claim from the accepted revision with explicit 
   assert.deepEqual(visible.json().content, result.json().content);
   assert.equal(visible.json().review_state, "unreviewed");
   assert.ok(!visible.body.includes(x.first.turn_id));
+  const hypothesisFields = {
+    ...fields,
+    item_id: x.alternative.id,
+    title: "Alternative explanation",
+    prediction: "A longer observation changes the baseline.",
+    falsification_criteria: "The baseline stays constant.",
+  };
+  const incomplete = {
+    ...fields,
+    item_id: x.alternative.id,
+    prediction: hypothesisFields.prediction,
+  };
+  assert.equal(
+    (await req(x.owner, "POST", candidatePath, incomplete, version)).statusCode,
+    422,
+  );
+  const preview = (
+    await req(x.owner, "POST", path, hypothesisFields, version)
+  ).json();
+  assert.equal(preview.type, "hypothesis");
+  assert.equal(preview.content.proposition, x.alternative.text);
+  assert.deepEqual(preview.provenance.source_turn_ids, [x.first.turn_id]);
+  assert.equal(preview.provenance.item_id, x.alternative.id);
+  assert.ok(preview.author_supplied_fields.includes("falsification_criteria"));
   const third = await req(
     x.owner,
     "POST",
     candidatePath,
-    { ...fields, title: "Additional claim" },
+    hypothesisFields,
     version,
   );
   assert.equal(third.json().version, 3);
@@ -1471,6 +1503,23 @@ test("author previews a registry claim from the accepted revision with explicit 
     rationale: "Comparison uses the narrower baseline.",
   };
   const selected = { ...batch, versions: [2, 3], relationship };
+  // Simulate an incomplete stored snapshot to exercise publication-time validation.
+  await admin.query(
+    "INSERT INTO outline_claim_candidates(review_id,version,workspace_id,candidate) SELECT review_id,4,workspace_id,candidate #- '{content,falsification_criteria}' FROM outline_claim_candidates WHERE review_id=$1 AND version=3",
+    [r.id],
+  );
+  assert.equal(
+    (
+      await req(
+        x.owner,
+        "POST",
+        publishPath,
+        { ...batch, versions: [2, 4] },
+        version,
+      )
+    ).statusCode,
+    422,
+  );
   const invalid = await req(
     x.owner,
     "POST",
@@ -1496,6 +1545,17 @@ test("author previews a registry claim from the accepted revision with explicit 
   );
   assert.equal(batchResult.statusCode, 201, batchResult.body);
   const receipt = batchResult.json();
+  for (const [index, type] of ["claim", "hypothesis"].entries()) {
+    const obj = (
+      await req(
+        x.peer,
+        "GET",
+        x.base + "/objects/" + receipt.published[index].object_id,
+      )
+    ).json();
+    assert.equal(obj.type, type);
+    if (type === "hypothesis") assert.deepEqual(obj.content, preview.content);
+  }
   const edge = await admin.query(
     "SELECT type,from_id,from_revision,to_id,to_revision,rationale FROM edge_revisions WHERE workspace_id=$1 AND edge_id=$2 AND revision=$3",
     [x.w, receipt.relationship.id, receipt.relationship.revision],

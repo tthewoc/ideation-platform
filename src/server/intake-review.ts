@@ -11,7 +11,7 @@ import {
   etag,
 } from "./api.js";
 import { transaction, fail, missing } from "./db.js";
-import { claim, uuid, reason, type Ref } from "./schema.js";
+import { claim, hypothesis, uuid, reason, type Ref } from "./schema.js";
 import {
   edgeInput,
   insertEdge,
@@ -149,11 +149,14 @@ export async function installIntakeReview(app: FastifyInstance) {
       return { ...packet, etag: etag(packet.version) };
     }),
   );
-  async function prepareClaim(c: PoolClient, req: FastifyRequest) {
+  async function prepareCandidate(c: PoolClient, req: FastifyRequest) {
     const { w, id } = params(req);
     const fields = z
       .object({
         item_id: uuid,
+        prediction: hypothesis.shape.prediction.optional(),
+        falsification_criteria:
+          hypothesis.shape.falsification_criteria.optional(),
         title: claim.shape.title,
         scope: claim.shape.scope,
         language: claim.shape.language.trim().min(2),
@@ -182,13 +185,14 @@ export async function installIntakeReview(app: FastifyInstance) {
       );
     const item = packet.outline.items.find(
       (entry: { id: string; kind: string }) =>
-        entry.id === fields.item_id && entry.kind === "claim",
+        entry.id === fields.item_id &&
+        ["claim", "alternative_hypothesis"].includes(entry.kind),
     );
     if (!item)
       fail(
         422,
         "invalid_claim_item",
-        "Choose a claim from the reviewed revision",
+        "Choose a claim or alternative hypothesis from the reviewed revision",
       );
     const pins = new Map<string, Ref>();
     for (const turn of packet.source_turns) {
@@ -196,7 +200,13 @@ export async function installIntakeReview(app: FastifyInstance) {
         for (const ref of turn.attachment_refs)
           pins.set(ref.id + ":" + ref.revision, ref);
     }
-    const content = claim.parse({
+    const type =
+      item.kind === "alternative_hypothesis" ? "hypothesis" : "claim";
+    const content = (type === "claim" ? claim : hypothesis).parse({
+      ...(fields.prediction !== undefined && { prediction: fields.prediction }),
+      ...(fields.falsification_criteria !== undefined && {
+        falsification_criteria: fields.falsification_criteria,
+      }),
       title: fields.title,
       language: fields.language,
       scope: fields.scope,
@@ -207,7 +217,7 @@ export async function installIntakeReview(app: FastifyInstance) {
     });
 
     return {
-      type: "claim",
+      type,
       schema_version: 1,
       content,
       provenance: {
@@ -219,20 +229,27 @@ export async function installIntakeReview(app: FastifyInstance) {
       },
       audience: "author",
       reviewed_fields: ["proposition", "body", "qualifiers"],
-      author_supplied_fields: ["title", "scope", "language"],
+      author_supplied_fields: [
+        "title",
+        "scope",
+        "language",
+        ...(type === "hypothesis"
+          ? ["prediction", "falsification_criteria"]
+          : []),
+      ],
     };
   }
   app.post(
     "/v1/workspaces/:w/outline-reviews/:id/claim-preview",
     async (req, reply) => {
       reply.header("Cache-Control", "no-store");
-      return transaction(req.session!.user_id, (c) => prepareClaim(c, req));
+      return transaction(req.session!.user_id, (c) => prepareCandidate(c, req));
     },
   );
   const candidates = "/v1/workspaces/:w/outline-reviews/:id/claim-candidates";
   app.post(candidates, async (req, reply) =>
     mutation(req, reply, async (c, w) => {
-      const candidate = await prepareClaim(c, req),
+      const candidate = await prepareCandidate(c, req),
         id = candidate.provenance.review_id;
       const version = (
         await c.query(
@@ -311,13 +328,18 @@ export async function installIntakeReview(app: FastifyInstance) {
             "already_published",
             "This candidate version has already been published",
           );
-        const body = claim.parse(saved.candidate.content);
-        await validateReferences(c, w, "claim", body, true);
+        const type = z
+          .enum(["claim", "hypothesis"])
+          .parse(saved.candidate.type);
+        const body = (type === "claim" ? claim : hypothesis).parse(
+          saved.candidate.content,
+        );
+        await validateReferences(c, w, type, body, true);
         await requireFreshInputs(c, w, body);
         const obj = (
           await c.query(
-            "INSERT INTO objects(workspace_id,type,author_id) VALUES($1,'claim',actor()) RETURNING *",
-            [w],
+            "INSERT INTO objects(workspace_id,type,author_id) VALUES($1,$2,actor()) RETURNING *",
+            [w, type],
           )
         ).rows[0];
         const revision = await append(
@@ -325,7 +347,7 @@ export async function installIntakeReview(app: FastifyInstance) {
           w,
           obj,
           body,
-          "Author confirmed workspace publication of a reviewed outline claim",
+          `Author confirmed workspace publication of a reviewed outline ${type}`,
           null,
         );
         await c.query(
@@ -336,7 +358,7 @@ export async function installIntakeReview(app: FastifyInstance) {
           obj.id,
           revision,
         ]);
-        await onPublication(c, w, obj.id, revision, revision, "claim", body);
+        await onPublication(c, w, obj.id, revision, revision, type, body);
         await c.query(
           "INSERT INTO outline_claim_publications(review_id,version,workspace_id,object_id,revision) VALUES($1,$2,$3,$4,$5)",
           [id, version, w, obj.id, revision],

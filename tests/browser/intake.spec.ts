@@ -203,6 +203,29 @@ test("private partial notes preserve wording, undo branches without deletion and
     await expect(
       outline.getByRole("article", { name: "Research task outline item" }),
     ).toContainText("A baseline is needed");
+    await outline
+      .getByLabel("Outline category")
+      .selectOption("alternative_hypothesis");
+    await outline
+      .getByLabel("Outline statement")
+      .fill("Ambient conditions explain the difference");
+    await outline
+      .getByLabel("Relation to original wording")
+      .selectOption("human_conjecture");
+    await outline
+      .getByLabel("Source notebook turns")
+      .selectOption({ label: "Turn 2: Second thought, still incomplete" });
+    await outline
+      .getByLabel("Reason for outline revision")
+      .fill("Record an alternative interpretation");
+    await outline
+      .getByRole("button", { name: "Add outline item", exact: true })
+      .click();
+    await expect(
+      outline.getByRole("article", {
+        name: "Alternative hypothesis outline item",
+      }),
+    ).toBeVisible();
     await outline.getByLabel("Independent outline reviewer ID").fill(peerId);
     await outline
       .getByLabel("Purpose of outline review")
@@ -267,17 +290,17 @@ test("private partial notes preserve wording, undo branches without deletion and
       "Add a discriminating baseline comparison",
     );
     await authorReviews
-      .getByLabel("Claim title", { exact: true })
+      .getByLabel("Candidate title", { exact: true })
       .fill("Baseline comparison");
     await authorReviews
-      .getByLabel("Claim scope", { exact: true })
+      .getByLabel("Candidate scope", { exact: true })
       .fill("Synthetic baseline only");
     await authorReviews.getByLabel("Language code").fill("en");
     await authorReviews
-      .getByRole("button", { name: "Preview registry claim" })
+      .getByRole("button", { name: "Preview registry candidate" })
       .click();
     const preview = authorReviews.getByRole("region", {
-      name: "Private claim preview",
+      name: "Private candidate preview",
     });
     await expect(preview).toContainText("A possible alternative explanation");
     await expect(preview).toContainText("Synthetic baseline only");
@@ -296,7 +319,7 @@ test("private partial notes preserve wording, undo branches without deletion and
     ).toBeVisible();
     await authorReviews.getByText("Version 1 · Baseline comparison").click();
     await authorReviews
-      .getByRole("checkbox", { name: /Share the claim content/ })
+      .getByRole("checkbox", { name: /Share the candidate content/ })
       .check();
     await authorReviews
       .getByRole("button", { name: "Publish candidate version 1" })
@@ -308,13 +331,31 @@ test("private partial notes preserve wording, undo branches without deletion and
       [2, "Narrow baseline"],
       [3, "Extended baseline"],
     ] as const) {
+      if (version === 3) {
+        await authorReviews
+          .getByLabel("Reviewed outline item")
+          .selectOption({
+            label:
+              "alternative hypothesis · Ambient conditions explain the difference",
+          });
+        await authorReviews
+          .getByLabel("Prediction", { exact: true })
+          .fill("The baseline varies with temperature");
+        await authorReviews
+          .getByLabel("Falsification criteria", { exact: true })
+          .fill("The baseline remains constant");
+      }
       await authorReviews
-        .getByLabel("Claim title", { exact: true })
+        .getByLabel("Candidate title", { exact: true })
         .fill(title);
       await authorReviews
-        .getByRole("button", { name: "Preview registry claim" })
+        .getByRole("button", { name: "Preview registry candidate" })
         .click();
       await expect(preview.getByRole("heading")).toHaveText(title);
+      if (version === 3)
+        await expect(preview).toContainText(
+          "Author-supplied falsification criteria: The baseline remains constant",
+        );
       await authorReviews
         .getByRole("button", { name: "Save preview as private candidate" })
         .click();
@@ -327,7 +368,7 @@ test("private partial notes preserve wording, undo branches without deletion and
     });
     await loadSaved.click();
     const batch = authorReviews.getByRole("group", {
-      name: "Publish selected claims together",
+      name: "Publish selected candidates together",
     });
     await batch
       .getByRole("checkbox", {
@@ -335,7 +376,7 @@ test("private partial notes preserve wording, undo branches without deletion and
         exact: true,
       })
       .check();
-    const consent = batch.getByLabel(/Share all selected claim content/);
+    const consent = batch.getByLabel(/Share all selected candidate content/);
     await consent.check();
     await batch
       .getByRole("checkbox", {
@@ -345,8 +386,8 @@ test("private partial notes preserve wording, undo branches without deletion and
       .check();
     await expect(consent).not.toBeChecked();
     await batch.getByLabel("Relationship type").selectOption("cites");
-    await batch.getByLabel("From claim").selectOption("3");
-    await batch.getByLabel("To claim").selectOption("2");
+    await batch.getByLabel("From candidate").selectOption("3");
+    await batch.getByLabel("To candidate").selectOption("2");
     await consent.check();
     await batch
       .getByLabel("Relationship rationale")
@@ -354,10 +395,10 @@ test("private partial notes preserve wording, undo branches without deletion and
     await expect(consent).not.toBeChecked();
     await consent.check();
     await batch
-      .getByRole("button", { name: "Publish selected claims" })
+      .getByRole("button", { name: "Publish selected candidates" })
       .click();
     await expect(authorReviews.getByRole("log")).toContainText(
-      "Published 2 claims to the workspace. Published relationship",
+      "Published 2 candidates to the workspace. Published relationship",
     );
     await loadSaved.click();
     for (const title of [
@@ -369,7 +410,13 @@ test("private partial notes preserve wording, undo branches without deletion and
         .filter({ has: page.locator("summary", { hasText: title }) })
         .last();
       await receipt.locator("summary").click();
-      await expect(receipt.getByText(/^Published claim /)).toBeVisible();
+      await expect(
+        receipt.getByText(
+          title.startsWith("Version 3")
+            ? /^Published hypothesis /
+            : /^Published claim /,
+        ),
+      ).toBeVisible();
     }
     await authorReviews
       .getByLabel("Reason for revoking outline access")

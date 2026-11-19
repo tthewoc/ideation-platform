@@ -68,7 +68,13 @@ export function OutlineReviews({
                     return next;
                   });
                   const packet = await api(`${base}/outline-reviews/${r.id}`);
-                  setPackets((p) => ({ ...p, [r.id]: packet }));
+                  const eligible = packet.outline.items.filter((i: any) =>
+                    ["claim", "alternative_hypothesis"].includes(i.kind),
+                  );
+                  setPackets((p) => ({
+                    ...p,
+                    [r.id]: { ...packet, eligible, selectedItem: eligible[0] },
+                  }));
                 })
               }
             >
@@ -111,9 +117,7 @@ export function OutlineReviews({
                   !r.expired &&
                   r.state === "decided" &&
                   packets[r.id].decision?.disposition === "accepted" &&
-                  packets[r.id].outline.items.some(
-                    (i: any) => i.kind === "claim",
-                  ) && (
+                  packets[r.id].selectedItem && (
                     <form
                       onChange={() =>
                         setPackets((old) => ({
@@ -142,25 +146,39 @@ export function OutlineReviews({
                         });
                       }}
                     >
-                      <h4>Prepare a private claim preview</h4>
+                      <h4>Prepare a private candidate preview</h4>
                       <label>
-                        Reviewed claim
-                        <select name="item_id">
-                          {packets[r.id].outline.items
-                            .filter((i: any) => i.kind === "claim")
-                            .map((i: any) => (
-                              <option key={i.id} value={i.id}>
-                                {i.text}
-                              </option>
-                            ))}
+                        Reviewed outline item
+                        <select
+                          name="item_id"
+                          value={packets[r.id].selectedItem.id}
+                          onChange={(e) => {
+                            const selectedItemId = e.currentTarget.value;
+                            setPackets((old) => ({
+                              ...old,
+                              [r.id]: {
+                                ...old[r.id],
+                                selectedItem: old[r.id].eligible.find(
+                                  (i: any) => i.id === selectedItemId,
+                                ),
+                                preview: null,
+                              },
+                            }));
+                          }}
+                        >
+                          {packets[r.id].eligible.map((i: any) => (
+                            <option key={i.id} value={i.id}>
+                              {i.kind.replaceAll("_", " ")} · {i.text}
+                            </option>
+                          ))}
                         </select>
                       </label>
                       <label>
-                        Claim title
+                        Candidate title
                         <input name="title" required maxLength={200} />
                       </label>
                       <label>
-                        Claim scope
+                        Candidate scope
                         <textarea name="scope" required maxLength={50000} />
                       </label>
                       <label>
@@ -172,11 +190,50 @@ export function OutlineReviews({
                           maxLength={20}
                         />
                       </label>
-                      <button disabled={busy}>Preview registry claim</button>
+                      {packets[r.id].selectedItem.kind ===
+                        "alternative_hypothesis" && (
+                        <fieldset key={packets[r.id].selectedItem.id}>
+                          <legend>Author-supplied hypothesis details</legend>
+                          <label>
+                            Prediction
+                            <textarea
+                              required
+                              name="prediction"
+                              maxLength={50000}
+                            />
+                          </label>
+                          <label>
+                            Falsification criteria
+                            <textarea
+                              required
+                              name="falsification_criteria"
+                              maxLength={50000}
+                            />
+                          </label>
+                        </fieldset>
+                      )}
+                      <button disabled={busy}>
+                        Preview registry candidate
+                      </button>
                       {packets[r.id].preview && (
-                        <section aria-label="Private claim preview">
+                        <section aria-label="Private candidate preview">
                           <h5>{packets[r.id].preview.content.title}</h5>
                           <p>{packets[r.id].preview.content.proposition}</p>
+                          {packets[r.id].preview.type === "hypothesis" && (
+                            <>
+                              <p>
+                                Author-supplied prediction:{" "}
+                                {packets[r.id].preview.content.prediction}
+                              </p>
+                              <p>
+                                Author-supplied falsification criteria:{" "}
+                                {
+                                  packets[r.id].preview.content
+                                    .falsification_criteria
+                                }
+                              </p>
+                            </>
+                          )}
                           <p>
                             Author-supplied scope:{" "}
                             {packets[r.id].preview.content.scope}
@@ -220,7 +277,7 @@ export function OutlineReviews({
                   r.state === "decided" &&
                   !r.expired &&
                   packets[r.id].decision?.disposition === "accepted" && (
-                    <section aria-label="Saved claim candidates">
+                    <section aria-label="Saved candidates">
                       {packets[r.id].preview && (
                         <button
                           disabled={busy}
@@ -232,6 +289,11 @@ export function OutlineReviews({
                                 "POST",
                                 {
                                   item_id: p.provenance.item_id,
+                                  ...(p.type === "hypothesis" && {
+                                    prediction: p.content.prediction,
+                                    falsification_criteria:
+                                      p.content.falsification_criteria,
+                                  }),
                                   title: p.content.title,
                                   scope: p.content.scope,
                                   language: p.content.language,
@@ -335,13 +397,15 @@ export function OutlineReviews({
                               }));
                               form.reset();
                               setMessage(
-                                `Published ${result.published.length} claims to the workspace.${result.relationship ? " Published relationship " + result.relationship.id + "." : ""}`,
+                                `Published ${result.published.length} candidates to the workspace.${result.relationship ? " Published relationship " + result.relationship.id + "." : ""}`,
                               );
                             });
                           }}
                         >
                           <fieldset disabled={busy}>
-                            <legend>Publish selected claims together</legend>
+                            <legend>
+                              Publish selected candidates together
+                            </legend>
                             {packets[r.id].saved
                               .filter((v: any) => !v.object_id)
                               .map((v: any) => (
@@ -356,7 +420,7 @@ export function OutlineReviews({
                                     {v.candidate.content.title}
                                   </label>
                                   <details>
-                                    <summary>Preview claim content</summary>
+                                    <summary>Preview candidate content</summary>
                                     <pre>
                                       {JSON.stringify(
                                         v.candidate.content,
@@ -385,8 +449,8 @@ export function OutlineReviews({
                               {["fromVersion", "toVersion"].map((name) => (
                                 <label key={name}>
                                   {name === "fromVersion"
-                                    ? "From claim"
-                                    : "To claim"}
+                                    ? "From candidate"
+                                    : "To candidate"}
                                   <select name={name} defaultValue="">
                                     <option value="">Select a candidate</option>
                                     {packets[r.id].saved
@@ -414,11 +478,11 @@ export function OutlineReviews({
                                 name="confirmation"
                                 required
                               />
-                              Share all selected claim content and artifact
+                              Share all selected candidate content and artifact
                               references, including the selected relationship
                               and rationale, with every workspace member.
                             </label>
-                            <button>Publish selected claims</button>
+                            <button>Publish selected candidates</button>
                           </fieldset>
                         </form>
                       )}
@@ -432,7 +496,9 @@ export function OutlineReviews({
                             {JSON.stringify(row.candidate.content, null, 2)}
                           </pre>
                           {row.object_id ? (
-                            <p>Published claim {row.object_id}</p>
+                            <p>
+                              Published {row.candidate.type} {row.object_id}
+                            </p>
                           ) : (
                             <form
                               onSubmit={(e) => {
@@ -463,16 +529,16 @@ export function OutlineReviews({
                                     },
                                   }));
                                   setMessage(
-                                    "Claim published to the workspace.",
+                                    `${row.candidate.type === "hypothesis" ? "Hypothesis" : "Claim"} published to the workspace.`,
                                   );
                                 });
                               }}
                             >
                               <label>
                                 <input type="checkbox" required />
-                                Share the claim content shown above, including
-                                its wording and artifact references, with all
-                                workspace members.
+                                Share the candidate content shown above,
+                                including its wording and artifact references,
+                                with all workspace members.
                               </label>
                               <button disabled={busy}>
                                 Publish candidate version {row.version}
