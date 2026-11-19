@@ -269,7 +269,57 @@ export function OutlineReviews({
                             Version {row.version} ·{" "}
                             {row.candidate.content.title}
                           </summary>
-                          <pre>{JSON.stringify(row.candidate, null, 2)}</pre>
+                          <pre>
+                            {JSON.stringify(row.candidate.content, null, 2)}
+                          </pre>
+                          {row.object_id ? (
+                            <p>Published claim {row.object_id}</p>
+                          ) : (
+                            <form
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                run(async () => {
+                                  const result = await api(
+                                    `${base}/outline-reviews/${r.id}/claim-candidates/publish`,
+                                    "POST",
+                                    {
+                                      version: row.version,
+                                      audience: "workspace",
+                                      confirmation: true,
+                                    },
+                                    r.etag,
+                                  );
+                                  setPackets((old) => ({
+                                    ...old,
+                                    [r.id]: {
+                                      ...old[r.id],
+                                      saved: old[r.id].saved.map((v: any) =>
+                                        v.version === row.version
+                                          ? {
+                                              ...v,
+                                              object_id: result.object_id,
+                                            }
+                                          : v,
+                                      ),
+                                    },
+                                  }));
+                                  setMessage(
+                                    "Claim published to the workspace.",
+                                  );
+                                });
+                              }}
+                            >
+                              <label>
+                                <input type="checkbox" required />
+                                Share the claim content shown above, including
+                                its wording and artifact references, with all
+                                workspace members.
+                              </label>
+                              <button disabled={busy}>
+                                Publish candidate version {row.version}
+                              </button>
+                            </form>
+                          )}
                         </details>
                       ))}
                     </section>

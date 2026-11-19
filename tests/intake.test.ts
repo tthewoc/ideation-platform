@@ -1387,6 +1387,59 @@ test("author previews a registry claim from the accepted revision with explicit 
   assert.equal(history.length, 2);
   assert.deepEqual(history[1].candidate, result.json());
   assert.deepEqual((await req(x.peer, "GET", candidatePath)).json().items, []);
+  const publishPath = candidatePath + "/publish",
+    publication = { version: 1, audience: "workspace", confirmation: true },
+    publicationKey = randomUUID();
+  assert.equal(
+    (
+      await req(
+        x.owner,
+        "POST",
+        publishPath,
+        { ...publication, confirmation: false },
+        version,
+      )
+    ).statusCode,
+    422,
+  );
+  assert.equal(
+    (await req(x.peer, "POST", publishPath, publication, version)).statusCode,
+    403,
+  );
+  const published = await req(
+    x.owner,
+    "POST",
+    publishPath,
+    publication,
+    version,
+    publicationKey,
+  );
+  assert.equal(published.statusCode, 201, published.body);
+  assert.deepEqual(
+    (
+      await req(
+        x.owner,
+        "POST",
+        publishPath,
+        publication,
+        version,
+        publicationKey,
+      )
+    ).json(),
+    published.json(),
+  );
+  assert.equal(
+    (await req(x.owner, "POST", publishPath, publication, version)).statusCode,
+    409,
+  );
+  const visible = await req(
+    x.peer,
+    "GET",
+    x.base + "/objects/" + published.json().object_id,
+  );
+  assert.deepEqual(visible.json().content, result.json().content);
+  assert.equal(visible.json().review_state, "unreviewed");
+  assert.ok(!visible.body.includes(x.first.turn_id));
   const revoked = await req(
     x.owner,
     "POST",

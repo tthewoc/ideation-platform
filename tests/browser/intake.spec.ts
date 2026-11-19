@@ -294,6 +294,16 @@ test("private partial notes preserve wording, undo branches without deletion and
     await expect(
       authorReviews.getByText("Version 1 · Baseline comparison"),
     ).toBeVisible();
+    await authorReviews.getByText("Version 1 · Baseline comparison").click();
+    await authorReviews
+      .getByRole("checkbox", { name: /Share the claim content/ })
+      .check();
+    await authorReviews
+      .getByRole("button", { name: "Publish candidate version 1" })
+      .click();
+    await expect(authorReviews.getByRole("log")).toContainText(
+      "Claim published to the workspace",
+    );
     await authorReviews
       .getByLabel("Reason for revoking outline access")
       .fill("Close this limited review audience");
