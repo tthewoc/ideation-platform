@@ -329,17 +329,35 @@ test("private partial notes preserve wording, undo branches without deletion and
     const batch = authorReviews.getByRole("group", {
       name: "Publish selected claims together",
     });
-    await batch.getByLabel("Version 2 · Narrow baseline").check();
+    await batch
+      .getByRole("checkbox", {
+        name: "Version 2 · Narrow baseline",
+        exact: true,
+      })
+      .check();
     const consent = batch.getByLabel(/Share all selected claim content/);
     await consent.check();
-    await batch.getByLabel("Version 3 · Extended baseline").check();
+    await batch
+      .getByRole("checkbox", {
+        name: "Version 3 · Extended baseline",
+        exact: true,
+      })
+      .check();
+    await expect(consent).not.toBeChecked();
+    await batch.getByLabel("Relationship type").selectOption("cites");
+    await batch.getByLabel("From claim").selectOption("3");
+    await batch.getByLabel("To claim").selectOption("2");
+    await consent.check();
+    await batch
+      .getByLabel("Relationship rationale")
+      .fill("Extended baseline cites the narrow baseline.");
     await expect(consent).not.toBeChecked();
     await consent.check();
     await batch
       .getByRole("button", { name: "Publish selected claims" })
       .click();
     await expect(authorReviews.getByRole("log")).toContainText(
-      "Published 2 claims to the workspace.",
+      "Published 2 claims to the workspace. Published relationship",
     );
     await loadSaved.click();
     for (const title of [

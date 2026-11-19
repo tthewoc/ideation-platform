@@ -13,6 +13,8 @@ import {
 import { transaction, fail, missing } from "./db.js";
 import { claim, uuid, reason, type Ref } from "./schema.js";
 import {
+  edgeInput,
+  insertEdge,
   onPublication,
   validateReferences,
   requireFreshInputs,
@@ -265,6 +267,15 @@ export async function installIntakeReview(app: FastifyInstance) {
             disclosure.extend({ version: versionSchema }).strict(),
             disclosure
               .extend({
+                relationship: z
+                  .object({
+                    type: z.enum(["cites", "derived_from", "relevant_to"]),
+                    from_version: versionSchema,
+                    to_version: versionSchema,
+                    rationale: reason,
+                  })
+                  .strict()
+                  .optional(),
                 versions: z
                   .array(versionSchema)
                   .min(1)
@@ -332,6 +343,36 @@ export async function installIntakeReview(app: FastifyInstance) {
         );
         await audit(c, req, w, "object.published", obj.id, revision);
         published.push({ version, object_id: obj.id, revision });
+      }
+      if ("versions" in b && b.relationship) {
+        const link = b.relationship;
+        const from = published.find((v) => v.version === link.from_version);
+        const to = published.find((v) => v.version === link.to_version);
+        if (!from || !to || from === to)
+          fail(
+            422,
+            "invalid_endpoint",
+            "Select two different batch candidates for the relationship",
+          );
+        const edge = await insertEdge(
+          c,
+          w,
+          edgeInput.parse({
+            type: link.type,
+            rationale: link.rationale,
+            from: { id: from.object_id, revision: from.revision },
+            to: { id: to.object_id, revision: to.revision },
+          }),
+        );
+        await c.query("SELECT bump_content_epoch($1)", [w]);
+        await audit(c, req, w, "edge.created", edge.id, edge.current_revision);
+        return {
+          status: 201,
+          body: {
+            published,
+            relationship: { id: edge.id, revision: edge.current_revision },
+          },
+        };
       }
       const first = published[0]!;
       return {

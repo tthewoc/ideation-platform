@@ -1464,7 +1464,28 @@ test("author previews a registry claim from the accepted revision with explicit 
   );
   assert.equal(third.json().version, 3);
   const batchKey = randomUUID();
-  const selected = { ...batch, versions: [2, 3] };
+  const relationship = {
+    type: "cites",
+    from_version: 3,
+    to_version: 2,
+    rationale: "Comparison uses the narrower baseline.",
+  };
+  const selected = { ...batch, versions: [2, 3], relationship };
+  const invalid = await req(
+    x.owner,
+    "POST",
+    publishPath,
+    { ...selected, relationship: { ...relationship, to_version: 1 } },
+    version,
+  );
+  assert.equal(invalid.statusCode, 422, invalid.body);
+  for (const table of ["objects", "edges"]) {
+    const count = await admin.query(
+      `SELECT count(*)::int AS n FROM ${table} WHERE workspace_id=$1`,
+      [x.w],
+    );
+    assert.equal(count.rows[0].n, table === "objects" ? 1 : 0);
+  }
   const batchResult = await req(
     x.owner,
     "POST",
@@ -1474,6 +1495,21 @@ test("author previews a registry claim from the accepted revision with explicit 
     batchKey,
   );
   assert.equal(batchResult.statusCode, 201, batchResult.body);
+  const receipt = batchResult.json();
+  const edge = await admin.query(
+    "SELECT type,from_id,from_revision,to_id,to_revision,rationale FROM edge_revisions WHERE workspace_id=$1 AND edge_id=$2 AND revision=$3",
+    [x.w, receipt.relationship.id, receipt.relationship.revision],
+  );
+  assert.deepEqual(edge.rows, [
+    {
+      type: "cites",
+      from_id: receipt.published[1].object_id,
+      from_revision: receipt.published[1].revision,
+      to_id: receipt.published[0].object_id,
+      to_revision: receipt.published[0].revision,
+      rationale: relationship.rationale,
+    },
+  ]);
   assert.deepEqual(
     batchResult.json().published.map((v: any) => v.version),
     [2, 3],

@@ -266,14 +266,46 @@ export function OutlineReviews({
                       {packets[r.id].saved?.filter((v: any) => !v.object_id)
                         .length > 1 && (
                         <form
+                          onChange={(e) => {
+                            const form = e.currentTarget;
+                            const consent =
+                              form.elements.namedItem("confirmation");
+                            if (
+                              consent instanceof HTMLInputElement &&
+                              !consent.isSameNode(e.target)
+                            )
+                              consent.checked = false;
+                          }}
                           onSubmit={(e) => {
                             e.preventDefault();
                             const form = e.currentTarget;
-                            const versions = new FormData(form)
+                            const data = new FormData(form);
+                            const versions = data
                               .getAll("versions")
                               .map(Number);
                             if (!versions.length) {
                               setError("Select a candidate to publish.");
+                              return;
+                            }
+                            const relationship = data.get("relationshipType")
+                              ? {
+                                  type: data.get("relationshipType"),
+                                  from_version: Number(data.get("fromVersion")),
+                                  to_version: Number(data.get("toVersion")),
+                                  rationale: data.get("rationale"),
+                                }
+                              : undefined;
+                            if (
+                              relationship &&
+                              (!versions.includes(relationship.from_version) ||
+                                !versions.includes(relationship.to_version) ||
+                                relationship.from_version ===
+                                  relationship.to_version ||
+                                !String(relationship.rationale).trim())
+                            ) {
+                              setError(
+                                "Select two different checked candidates and enter a rationale for the relationship.",
+                              );
                               return;
                             }
                             run(async () => {
@@ -282,6 +314,7 @@ export function OutlineReviews({
                                 "POST",
                                 {
                                   versions,
+                                  relationship,
                                   audience: "workspace",
                                   confirmation: true,
                                 },
@@ -302,7 +335,7 @@ export function OutlineReviews({
                               }));
                               form.reset();
                               setMessage(
-                                `Published ${result.published.length} claims to the workspace.`,
+                                `Published ${result.published.length} claims to the workspace.${result.relationship ? " Published relationship " + result.relationship.id + "." : ""}`,
                               );
                             });
                           }}
@@ -318,13 +351,6 @@ export function OutlineReviews({
                                       type="checkbox"
                                       name="versions"
                                       value={v.version}
-                                      onChange={(e) => {
-                                        const confirm =
-                                          e.currentTarget.form?.elements.namedItem(
-                                            "confirmation",
-                                          ) as HTMLInputElement;
-                                        confirm.checked = false;
-                                      }}
                                     />
                                     Version {v.version} ·{" "}
                                     {v.candidate.content.title}
@@ -341,6 +367,47 @@ export function OutlineReviews({
                                   </details>
                                 </div>
                               ))}
+                            <fieldset>
+                              <legend>Relationship preview</legend>
+                              <label>
+                                Relationship type
+                                <select name="relationshipType" defaultValue="">
+                                  <option value="">No relationship</option>
+                                  <option value="cites">Cites</option>
+                                  <option value="derived_from">
+                                    Derived from
+                                  </option>
+                                  <option value="relevant_to">
+                                    Relevant to
+                                  </option>
+                                </select>
+                              </label>
+                              {["fromVersion", "toVersion"].map((name) => (
+                                <label key={name}>
+                                  {name === "fromVersion"
+                                    ? "From claim"
+                                    : "To claim"}
+                                  <select name={name} defaultValue="">
+                                    <option value="">Select a candidate</option>
+                                    {packets[r.id].saved
+                                      .filter((v: any) => !v.object_id)
+                                      .map((v: any) => (
+                                        <option
+                                          key={v.version}
+                                          value={v.version}
+                                        >
+                                          Version {v.version} ·{" "}
+                                          {v.candidate.content.title}
+                                        </option>
+                                      ))}
+                                  </select>
+                                </label>
+                              ))}
+                              <label>
+                                Relationship rationale
+                                <textarea name="rationale" maxLength={4000} />
+                              </label>
+                            </fieldset>
                             <label>
                               <input
                                 type="checkbox"
@@ -348,7 +415,8 @@ export function OutlineReviews({
                                 required
                               />
                               Share all selected claim content and artifact
-                              references with every workspace member.
+                              references, including the selected relationship
+                              and rationale, with every workspace member.
                             </label>
                             <button>Publish selected claims</button>
                           </fieldset>
