@@ -304,6 +304,55 @@ test("private partial notes preserve wording, undo branches without deletion and
     await expect(authorReviews.getByRole("log")).toContainText(
       "Claim published to the workspace",
     );
+    for (const [version, title] of [
+      [2, "Narrow baseline"],
+      [3, "Extended baseline"],
+    ] as const) {
+      await authorReviews
+        .getByLabel("Claim title", { exact: true })
+        .fill(title);
+      await authorReviews
+        .getByRole("button", { name: "Preview registry claim" })
+        .click();
+      await expect(preview.getByRole("heading")).toHaveText(title);
+      await authorReviews
+        .getByRole("button", { name: "Save preview as private candidate" })
+        .click();
+      await expect(authorReviews.getByRole("log")).toContainText(
+        `version ${version} saved`,
+      );
+    }
+    const loadSaved = authorReviews.getByRole("button", {
+      name: "Load saved candidates",
+    });
+    await loadSaved.click();
+    const batch = authorReviews.getByRole("group", {
+      name: "Publish selected claims together",
+    });
+    await batch.getByLabel("Version 2 · Narrow baseline").check();
+    const consent = batch.getByLabel(/Share all selected claim content/);
+    await consent.check();
+    await batch.getByLabel("Version 3 · Extended baseline").check();
+    await expect(consent).not.toBeChecked();
+    await consent.check();
+    await batch
+      .getByRole("button", { name: "Publish selected claims" })
+      .click();
+    await expect(authorReviews.getByRole("log")).toContainText(
+      "Published 2 claims to the workspace.",
+    );
+    await loadSaved.click();
+    for (const title of [
+      "Version 2 · Narrow baseline",
+      "Version 3 · Extended baseline",
+    ]) {
+      const receipt = authorReviews
+        .locator("details")
+        .filter({ has: page.locator("summary", { hasText: title }) })
+        .last();
+      await receipt.locator("summary").click();
+      await expect(receipt.getByText(/^Published claim /)).toBeVisible();
+    }
     await authorReviews
       .getByLabel("Reason for revoking outline access")
       .fill("Close this limited review audience");
