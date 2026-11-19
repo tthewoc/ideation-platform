@@ -263,6 +263,97 @@ export function OutlineReviews({
                       >
                         Load saved candidates
                       </button>
+                      {packets[r.id].saved?.filter((v: any) => !v.object_id)
+                        .length > 1 && (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            const form = e.currentTarget;
+                            const versions = new FormData(form)
+                              .getAll("versions")
+                              .map(Number);
+                            if (!versions.length) {
+                              setError("Select a candidate to publish.");
+                              return;
+                            }
+                            run(async () => {
+                              const result = await api(
+                                `${base}/outline-reviews/${r.id}/claim-candidates/publish`,
+                                "POST",
+                                {
+                                  versions,
+                                  audience: "workspace",
+                                  confirmation: true,
+                                },
+                                r.etag,
+                              );
+                              setPackets((old) => ({
+                                ...old,
+                                [r.id]: {
+                                  ...old[r.id],
+                                  saved: old[r.id].saved.map((v: any) => ({
+                                    ...v,
+                                    object_id:
+                                      result.published.find(
+                                        (p: any) => p.version === v.version,
+                                      )?.object_id ?? v.object_id,
+                                  })),
+                                },
+                              }));
+                              form.reset();
+                              setMessage(
+                                `Published ${result.published.length} claims to the workspace.`,
+                              );
+                            });
+                          }}
+                        >
+                          <fieldset disabled={busy}>
+                            <legend>Publish selected claims together</legend>
+                            {packets[r.id].saved
+                              .filter((v: any) => !v.object_id)
+                              .map((v: any) => (
+                                <div key={v.version}>
+                                  <label>
+                                    <input
+                                      type="checkbox"
+                                      name="versions"
+                                      value={v.version}
+                                      onChange={(e) => {
+                                        const confirm =
+                                          e.currentTarget.form?.elements.namedItem(
+                                            "confirmation",
+                                          ) as HTMLInputElement;
+                                        confirm.checked = false;
+                                      }}
+                                    />
+                                    Version {v.version} ·{" "}
+                                    {v.candidate.content.title}
+                                  </label>
+                                  <details>
+                                    <summary>Preview claim content</summary>
+                                    <pre>
+                                      {JSON.stringify(
+                                        v.candidate.content,
+                                        null,
+                                        2,
+                                      )}
+                                    </pre>
+                                  </details>
+                                </div>
+                              ))}
+                            <label>
+                              <input
+                                type="checkbox"
+                                name="confirmation"
+                                required
+                              />
+                              Share all selected claim content and artifact
+                              references with every workspace member.
+                            </label>
+                            <button>Publish selected claims</button>
+                          </fieldset>
+                        </form>
+                      )}
                       {packets[r.id].saved?.map((row: any) => (
                         <details key={row.version}>
                           <summary>

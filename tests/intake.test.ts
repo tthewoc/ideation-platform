@@ -1406,6 +1406,21 @@ test("author previews a registry claim from the accepted revision with explicit 
     (await req(x.peer, "POST", publishPath, publication, version)).statusCode,
     403,
   );
+  const batch = {
+    versions: [1, 49],
+    audience: "workspace",
+    confirmation: true,
+  };
+  assert.equal(
+    (await req(x.owner, "POST", publishPath, batch, version)).statusCode,
+    404,
+  );
+  assert.equal(
+    (await req(x.owner, "GET", candidatePath))
+      .json()
+      .items.filter((v: any) => v.object_id).length,
+    0,
+  );
   const published = await req(
     x.owner,
     "POST",
@@ -1440,6 +1455,35 @@ test("author previews a registry claim from the accepted revision with explicit 
   assert.deepEqual(visible.json().content, result.json().content);
   assert.equal(visible.json().review_state, "unreviewed");
   assert.ok(!visible.body.includes(x.first.turn_id));
+  const third = await req(
+    x.owner,
+    "POST",
+    candidatePath,
+    { ...fields, title: "Additional claim" },
+    version,
+  );
+  assert.equal(third.json().version, 3);
+  const batchKey = randomUUID();
+  const selected = { ...batch, versions: [2, 3] };
+  const batchResult = await req(
+    x.owner,
+    "POST",
+    publishPath,
+    selected,
+    version,
+    batchKey,
+  );
+  assert.equal(batchResult.statusCode, 201, batchResult.body);
+  assert.deepEqual(
+    batchResult.json().published.map((v: any) => v.version),
+    [2, 3],
+  );
+  assert.deepEqual(
+    (
+      await req(x.owner, "POST", publishPath, selected, version, batchKey)
+    ).json(),
+    batchResult.json(),
+  );
   const revoked = await req(
     x.owner,
     "POST",

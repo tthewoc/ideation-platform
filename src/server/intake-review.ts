@@ -255,70 +255,92 @@ export async function installIntakeReview(app: FastifyInstance) {
   app.post(candidates + "/publish", async (req, reply) =>
     mutation(req, reply, async (c, w) => {
       const id = uuid.parse(params(req).id),
+        versionSchema = z.number().int().positive(),
+        disclosure = z.object({
+          audience: z.literal("workspace"),
+          confirmation: z.literal(true),
+        }),
         b = z
-          .object({
-            version: z.number().int().positive(),
-            audience: z.literal("workspace"),
-            confirmation: z.literal(true),
-          })
-          .strict()
+          .union([
+            disclosure.extend({ version: versionSchema }).strict(),
+            disclosure
+              .extend({
+                versions: z
+                  .array(versionSchema)
+                  .min(1)
+                  .max(50)
+                  .refine((v) => new Set(v).size === v.length),
+              })
+              .strict(),
+          ])
           .parse(req.body);
       const review = await request(c, w, id);
       precondition(req, review.version);
       if (review.author_id !== req.session!.user_id)
         fail(403, "author_required", "Only the author may publish this claim");
-      const saved =
-        (
-          await c.query(
-            "SELECT candidate FROM outline_claim_candidates WHERE workspace_id=$1 AND review_id=$2 AND version=$3",
-            [w, id, b.version],
-          )
-        ).rows[0] ?? missing();
-      if (
-        (
-          await c.query(
-            "SELECT 1 FROM outline_claim_publications WHERE review_id=$1 AND version=$2",
-            [id, b.version],
-          )
-        ).rowCount
-      )
-        fail(
-          409,
-          "already_published",
-          "This candidate version has already been published",
-        );
-      const body = claim.parse(saved.candidate.content);
-      await validateReferences(c, w, "claim", body, true);
-      await requireFreshInputs(c, w, body);
-      const obj = (
-        await c.query(
-          "INSERT INTO objects(workspace_id,type,author_id) VALUES($1,'claim',actor()) RETURNING *",
-          [w],
+      const published = [];
+      for (const version of "versions" in b ? b.versions : [b.version]) {
+        const saved =
+          (
+            await c.query(
+              "SELECT candidate FROM outline_claim_candidates WHERE workspace_id=$1 AND review_id=$2 AND version=$3",
+              [w, id, version],
+            )
+          ).rows[0] ?? missing();
+        if (
+          (
+            await c.query(
+              "SELECT 1 FROM outline_claim_publications WHERE review_id=$1 AND version=$2",
+              [id, version],
+            )
+          ).rowCount
         )
-      ).rows[0];
-      const revision = await append(
-        c,
-        w,
-        obj,
-        body,
-        "Author confirmed workspace publication of a reviewed outline claim",
-        null,
-      );
-      await c.query(
-        "INSERT INTO publications(workspace_id,object_id,revision,published_by) VALUES($1,$2,$3,actor())",
-        [w, obj.id, revision],
-      );
-      await c.query("UPDATE objects SET current_revision=$2 WHERE id=$1", [
-        obj.id,
-        revision,
-      ]);
-      await onPublication(c, w, obj.id, revision, revision, "claim", body);
-      await c.query(
-        "INSERT INTO outline_claim_publications(review_id,version,workspace_id,object_id,revision) VALUES($1,$2,$3,$4,$5)",
-        [id, b.version, w, obj.id, revision],
-      );
-      await audit(c, req, w, "object.published", obj.id, revision);
-      return { status: 201, body: { object_id: obj.id, revision } };
+          fail(
+            409,
+            "already_published",
+            "This candidate version has already been published",
+          );
+        const body = claim.parse(saved.candidate.content);
+        await validateReferences(c, w, "claim", body, true);
+        await requireFreshInputs(c, w, body);
+        const obj = (
+          await c.query(
+            "INSERT INTO objects(workspace_id,type,author_id) VALUES($1,'claim',actor()) RETURNING *",
+            [w],
+          )
+        ).rows[0];
+        const revision = await append(
+          c,
+          w,
+          obj,
+          body,
+          "Author confirmed workspace publication of a reviewed outline claim",
+          null,
+        );
+        await c.query(
+          "INSERT INTO publications(workspace_id,object_id,revision,published_by) VALUES($1,$2,$3,actor())",
+          [w, obj.id, revision],
+        );
+        await c.query("UPDATE objects SET current_revision=$2 WHERE id=$1", [
+          obj.id,
+          revision,
+        ]);
+        await onPublication(c, w, obj.id, revision, revision, "claim", body);
+        await c.query(
+          "INSERT INTO outline_claim_publications(review_id,version,workspace_id,object_id,revision) VALUES($1,$2,$3,$4,$5)",
+          [id, version, w, obj.id, revision],
+        );
+        await audit(c, req, w, "object.published", obj.id, revision);
+        published.push({ version, object_id: obj.id, revision });
+      }
+      const first = published[0]!;
+      return {
+        status: 201,
+        body:
+          "versions" in b
+            ? { published }
+            : { object_id: first.object_id, revision: first.revision },
+      };
     }),
   );
   app.get(candidates, async (req, reply) =>
