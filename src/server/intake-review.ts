@@ -1,7 +1,14 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { PoolClient } from "pg";
 import { z } from "zod";
-import { mutation, params, workspace, precondition, etag } from "./api.js";
+import {
+  audit,
+  mutation,
+  params,
+  workspace,
+  precondition,
+  etag,
+} from "./api.js";
 import { transaction, fail, missing } from "./db.js";
 import { claim, uuid, reason, type Ref } from "./schema.js";
 const columns =
@@ -134,82 +141,126 @@ export async function installIntakeReview(app: FastifyInstance) {
       return { ...packet, etag: etag(packet.version) };
     }),
   );
+  async function prepareClaim(c: PoolClient, req: FastifyRequest) {
+    const { w, id } = params(req);
+    const fields = z
+      .object({
+        item_id: uuid,
+        title: claim.shape.title,
+        scope: claim.shape.scope,
+        language: claim.shape.language.trim().min(2),
+      })
+      .strict()
+      .parse(req.body);
+    await workspace(c, w, true);
+    const r = await request(c, w, id);
+    if (r.author_id !== req.session!.user_id)
+      fail(
+        403,
+        "author_required",
+        "Only the notebook author can prepare a claim",
+      );
+    precondition(req, r.version);
+    const packet = await checkedPacket(c, w, id);
+    if (
+      packet.state !== "decided" ||
+      packet.expired ||
+      packet.decision?.disposition !== "accepted"
+    )
+      fail(
+        409,
+        "accepted_review_required",
+        "Select an accepted review with an active grant",
+      );
+    const item = packet.outline.items.find(
+      (entry: { id: string; kind: string }) =>
+        entry.id === fields.item_id && entry.kind === "claim",
+    );
+    if (!item)
+      fail(
+        422,
+        "invalid_claim_item",
+        "Choose a claim from the reviewed revision",
+      );
+    const pins = new Map<string, Ref>();
+    for (const turn of packet.source_turns) {
+      if (item.source_turn_ids.includes(turn.id))
+        for (const ref of turn.attachment_refs)
+          pins.set(ref.id + ":" + ref.revision, ref);
+    }
+    const content = claim.parse({
+      title: fields.title,
+      language: fields.language,
+      scope: fields.scope,
+      body: item.rationale,
+      proposition: item.text,
+      qualifiers: [item.basis],
+      source_refs: [...pins.values()],
+    });
+
+    return {
+      type: "claim",
+      schema_version: 1,
+      content,
+      provenance: {
+        review_id: id,
+        outline_revision: packet.outline.revision,
+        item_id: item.id,
+        source_turn_ids: item.source_turn_ids,
+        basis: item.basis,
+      },
+      audience: "author",
+      reviewed_fields: ["proposition", "body", "qualifiers"],
+      author_supplied_fields: ["title", "scope", "language"],
+    };
+  }
   app.post(
     "/v1/workspaces/:w/outline-reviews/:id/claim-preview",
-    async (req, reply) =>
-      transaction(req.session!.user_id, async (c) => {
-        const { w, id } = params(req);
-        const fields = z
-          .object({
-            item_id: uuid,
-            title: claim.shape.title,
-            scope: claim.shape.scope,
-            language: claim.shape.language.trim().min(2),
-          })
-          .strict()
-          .parse(req.body);
-        await workspace(c, w, true);
-        const r = await request(c, w, id);
-        if (r.author_id !== req.session!.user_id)
-          fail(
-            403,
-            "author_required",
-            "Only the notebook author can prepare a claim",
-          );
-        precondition(req, r.version);
-        const packet = await checkedPacket(c, w, id);
-        if (
-          packet.state !== "decided" ||
-          packet.expired ||
-          packet.decision?.disposition !== "accepted"
+    async (req, reply) => {
+      reply.header("Cache-Control", "no-store");
+      return transaction(req.session!.user_id, (c) => prepareClaim(c, req));
+    },
+  );
+  const candidates = "/v1/workspaces/:w/outline-reviews/:id/claim-candidates";
+  app.post(candidates, async (req, reply) =>
+    mutation(req, reply, async (c, w) => {
+      const candidate = await prepareClaim(c, req),
+        id = candidate.provenance.review_id;
+      const version = (
+        await c.query(
+          "SELECT COALESCE(max(version),0)+1 AS version FROM outline_claim_candidates WHERE review_id=$1",
+          [id],
         )
-          fail(
-            409,
-            "accepted_review_required",
-            "Select an accepted review with an active grant",
-          );
-        const item = packet.outline.items.find(
-          (entry: { id: string; kind: string }) =>
-            entry.id === fields.item_id && entry.kind === "claim",
+      ).rows[0].version;
+      if (version > 50)
+        fail(
+          429,
+          "candidate_limit",
+          "This review already has 50 saved candidates",
         );
-        if (!item)
-          fail(
-            422,
-            "invalid_claim_item",
-            "Choose a claim from the reviewed revision",
-          );
-        const pins = new Map<string, Ref>();
-        for (const turn of packet.source_turns) {
-          if (item.source_turn_ids.includes(turn.id))
-            for (const ref of turn.attachment_refs)
-              pins.set(ref.id + ":" + ref.revision, ref);
-        }
-        const content = claim.parse({
-          title: fields.title,
-          language: fields.language,
-          scope: fields.scope,
-          body: item.rationale,
-          proposition: item.text,
-          qualifiers: [item.basis],
-          source_refs: [...pins.values()],
-        });
-        reply.header("Cache-Control", "no-store");
-        return {
-          type: "claim",
-          schema_version: 1,
-          content,
-          provenance: {
-            review_id: id,
-            outline_revision: packet.outline.revision,
-            item_id: item.id,
-            source_turn_ids: item.source_turn_ids,
-            basis: item.basis,
-          },
-          audience: "author",
-          reviewed_fields: ["proposition", "body", "qualifiers"],
-          author_supplied_fields: ["title", "scope", "language"],
-        };
-      }),
+      await c.query(
+        "INSERT INTO outline_claim_candidates(review_id,version,workspace_id,candidate) VALUES($1,$2,$3,$4)",
+        [id, version, w, candidate],
+      );
+      await audit(c, req, w, "outline.candidate_saved", id, version);
+      return { status: 201, body: { review_id: id, version } };
+    }),
+  );
+  app.get(candidates, async (req, reply) =>
+    transaction(req.session!.user_id, async (c) => {
+      const { w, id } = params(req);
+      await workspace(c, w);
+      uuid.parse(id);
+      reply.header("Cache-Control", "no-store");
+      return {
+        items: (
+          await c.query(
+            "SELECT version,candidate FROM outline_claim_candidates WHERE workspace_id=$1 AND review_id=$2 ORDER BY version DESC",
+            [w, id],
+          )
+        ).rows,
+      };
+    }),
   );
   app.post(
     "/v1/workspaces/:w/outline-reviews/:id/decisions",

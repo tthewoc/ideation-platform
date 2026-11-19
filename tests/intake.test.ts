@@ -1367,6 +1367,26 @@ test("author previews a registry claim from the accepted revision with explicit 
     ).rows[0].n,
     0,
   );
+  const candidatePath = url + "/claim-candidates",
+    key = randomUUID();
+  const save = await req(x.owner, "POST", candidatePath, fields, version, key);
+  assert.equal(save.statusCode, 201, save.body);
+  assert.deepEqual(
+    (await req(x.owner, "POST", candidatePath, fields, version, key)).json(),
+    save.json(),
+  );
+  const next = await req(
+    x.owner,
+    "POST",
+    candidatePath,
+    { ...fields, title: "Revised title" },
+    version,
+  );
+  assert.equal(next.json().version, 2, next.body);
+  const history = (await req(x.owner, "GET", candidatePath)).json().items;
+  assert.equal(history.length, 2);
+  assert.deepEqual(history[1].candidate, result.json());
+  assert.deepEqual((await req(x.peer, "GET", candidatePath)).json().items, []);
   const revoked = await req(
     x.owner,
     "POST",
@@ -1378,4 +1398,5 @@ test("author previews a registry claim from the accepted revision with explicit 
     (await req(x.owner, "POST", path, fields, revoked.json().etag)).statusCode,
     409,
   );
+  assert.deepEqual((await req(x.owner, "GET", candidatePath)).json().items, []);
 });

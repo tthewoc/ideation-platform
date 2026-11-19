@@ -283,6 +283,18 @@ test("private partial notes preserve wording, undo branches without deletion and
     await expect(preview).toContainText("Synthetic baseline only");
     await expect(preview).toContainText("Source turns: 2");
     await authorReviews
+      .getByRole("button", { name: "Save preview as private candidate" })
+      .click();
+    await expect(authorReviews.getByRole("log")).toContainText(
+      "version 1 saved",
+    );
+    await authorReviews
+      .getByRole("button", { name: "Load saved candidates" })
+      .click();
+    await expect(
+      authorReviews.getByText("Version 1 · Baseline comparison"),
+    ).toBeVisible();
+    await authorReviews
       .getByLabel("Reason for revoking outline access")
       .fill("Close this limited review audience");
     await authorReviews

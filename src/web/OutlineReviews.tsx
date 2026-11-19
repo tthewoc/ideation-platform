@@ -216,6 +216,64 @@ export function OutlineReviews({
                       )}
                     </form>
                   )}
+                {r.author_id === userId &&
+                  r.state === "decided" &&
+                  !r.expired &&
+                  packets[r.id].decision?.disposition === "accepted" && (
+                    <section aria-label="Saved claim candidates">
+                      {packets[r.id].preview && (
+                        <button
+                          disabled={busy}
+                          onClick={() =>
+                            run(async () => {
+                              const p = packets[r.id].preview;
+                              const result = await api(
+                                `${base}/outline-reviews/${r.id}/claim-candidates`,
+                                "POST",
+                                {
+                                  item_id: p.provenance.item_id,
+                                  title: p.content.title,
+                                  scope: p.content.scope,
+                                  language: p.content.language,
+                                },
+                                r.etag,
+                              );
+                              setMessage(
+                                `Private candidate version ${result.version} saved.`,
+                              );
+                            })
+                          }
+                        >
+                          Save preview as private candidate
+                        </button>
+                      )}
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          run(async () => {
+                            const result = await api(
+                              `${base}/outline-reviews/${r.id}/claim-candidates`,
+                            );
+                            setPackets((old) => ({
+                              ...old,
+                              [r.id]: { ...old[r.id], saved: result.items },
+                            }));
+                          })
+                        }
+                      >
+                        Load saved candidates
+                      </button>
+                      {packets[r.id].saved?.map((row: any) => (
+                        <details key={row.version}>
+                          <summary>
+                            Version {row.version} ·{" "}
+                            {row.candidate.content.title}
+                          </summary>
+                          <pre>{JSON.stringify(row.candidate, null, 2)}</pre>
+                        </details>
+                      ))}
+                    </section>
+                  )}
                 <h4>Granted original turns</h4>
                 {packets[r.id].source_turns.map((t: any) => (
                   <section key={t.id} aria-label={`Granted turn ${t.sequence}`}>

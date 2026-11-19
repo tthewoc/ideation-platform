@@ -121,6 +121,4 @@ registry source references. Author-supplied fields remain labelled separately.
 
 `POST /v1/workspaces/:w/outline-reviews/:id/claim-preview` takes the current
 review ETag and `{item_id,title,scope,language}`. The server checks current source
-access, grant expiry, acceptance and author identity. The response is private
-and ephemeral. Persisting candidates, confirming a publication audience, and
-atomically publishing a batch with its provenance remain future steps.
+access, grant expiry, acceptance and author identity. The preview is ephemeral. The author can save its inputs through POST to the sibling claim-candidates route. The server rebuilds the candidate from the pinned review and records an immutable numbered snapshot (up to 50 per review). GET on that route returns authorized snapshots newest first. Expiry, source restriction and revocation close candidate reads. Audience confirmation and atomic batch publication remain outstanding.
