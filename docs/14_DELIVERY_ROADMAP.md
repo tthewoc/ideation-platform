@@ -50,3 +50,11 @@ remain deferred if slice 1 is explicitly approved for local synthetic developmen
 The subsequent explicit instruction to commence coding authorizes slice 1 after
 the completed documentation review. Do not ask for that approval again.
 Do not treat creation of this packet or environment publication as design approval.
+
+### Open release evidence for slice 5
+
+| Gate | Evidence still required |
+|---|---|
+| Provider and privacy approval | Operator approval of the provider, permitted inputs, consent, retention and processing terms before enabling live dispatch. |
+| Live model qualification | Versioned development and held-out cases, live outputs, independent human reviews and adjudication meeting the thresholds in [the evaluation runner](22_EVALUATION_RUNNER.md). |
+| Hybrid retrieval quality | A versioned retrieval evaluation comparing hybrid ranking with the lexical baseline, including access filtering and relevance on held-out queries. |

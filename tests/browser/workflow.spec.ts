@@ -246,3 +246,56 @@ test("workspace changes discard late reads and claim retries preserve scientific
   expect(keys).toHaveLength(2);
   expect(keys[1]).toBe(keys[0]);
 });
+
+test("projects and their references have independent continuation cursors", async ({
+  page,
+}) => {
+  const projects = Array.from({ length: 26 }, (_, i) => ({
+    id: `p${i + 1}`,
+    name: `Project ${i + 1}`,
+  }));
+  const refs = Array.from({ length: 26 }, (_, i) => ({
+    id: `r${i + 1}`,
+    content: { title: `Reference ${i + 1}` },
+  }));
+  await page.route("**/v1/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/v1/session")
+      return route.fulfill({
+        json: {
+          user: { id: "user", name: "User" },
+          workspaces: [{ id: "ws", name: "Workspace" }],
+        },
+      });
+    const isProjects = url.pathname.endsWith("/projects");
+    const items = isProjects
+      ? projects
+      : url.pathname.includes("/projects/")
+        ? refs
+        : [];
+    const next = isProjects ? "p25" : "r25";
+    const page2 = url.searchParams.get("cursor") === next;
+    return route.fulfill({
+      json: {
+        items: page2 ? items.slice(25) : items.slice(0, 25),
+        next_cursor: items.length > 25 && !page2 ? next : null,
+      },
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Load more projects" }).click();
+  const card = page.getByRole("article").filter({
+    has: page.getByRole("heading", { name: "Project 26", exact: true }),
+  });
+  await card.getByRole("button", { name: "View references" }).click();
+  await card.getByRole("button", { name: "Load more references" }).click();
+  await expect(
+    card.getByRole("button", { name: "Reference 26", exact: true }),
+  ).toBeVisible();
+  await expect(
+    card.getByRole("button", { name: "Reference 1", exact: true }),
+  ).toBeVisible();
+  await expect(
+    card.getByRole("button", { name: "Load more references" }),
+  ).toHaveCount(0);
+});

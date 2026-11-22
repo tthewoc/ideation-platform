@@ -1,20 +1,23 @@
 import { config } from "dotenv";
 import { spawnSync } from "node:child_process";
-import { writeFile, readFile, mkdtemp, rm, cp } from "node:fs/promises";
+import { open, readFile, mkdtemp, rm, cp } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import pg from "pg";
 import { join } from "node:path";
 import { storageRoot, digest } from "../src/server/artifact-storage.js";
 config({ path: ".local/dev.env", quiet: true });
-function docker(args: string[], input?: Buffer) {
+function docker(
+  args: string[],
+  streams: { input?: number; output?: number } = {},
+) {
   const r = spawnSync(
     "docker",
     ["compose", "--env-file", ".local/dev.env", "exec", "-T", "db", ...args],
-    { input, maxBuffer: 64 * 1024 * 1024 },
+    { stdio: [streams.input ?? "ignore", streams.output ?? "ignore", "pipe"] },
   );
+  if (r.error) throw r.error;
   if (r.status !== 0) throw new Error(r.stderr.toString());
-  return r.stdout;
 }
 const target = `ideator_restore_${randomUUID().replaceAll("-", "")}`;
 const [mode, source] = process.argv.slice(2);
@@ -27,24 +30,34 @@ if (
 const backupRoot = source ?? (await mkdtemp(".local/restore-backup-"));
 const dumpFile = join(backupRoot, "database.dump");
 if (!source) {
-  await writeFile(
-    dumpFile,
-    docker(["pg_dump", "-U", "postgres", "-d", "ideator", "-Fc"]),
-    { mode: 0o600 },
-  );
+  const file = await open(dumpFile, "wx", 0o600);
+  try {
+    const database = decodeURIComponent(
+      new URL(process.env.DATABASE_ADMIN_URL!).pathname.slice(1),
+    );
+    docker(["pg_dump", "-U", "postgres", "-d", database, "-Fc"], {
+      output: file.fd,
+    });
+  } finally {
+    await file.close();
+  }
   await cp(storageRoot(), join(backupRoot, "artifacts"), { recursive: true });
 }
 if (mode === "--capture") {
   console.log(backupRoot);
   process.exit(0);
 }
-const dump = await readFile(dumpFile);
+
 docker(["createdb", "-U", "postgres", target]);
 try {
-  docker(
-    ["pg_restore", "-U", "postgres", "-d", target, "--exit-on-error"],
-    dump,
-  );
+  const file = await open(dumpFile, "r");
+  try {
+    docker(["pg_restore", "-U", "postgres", "-d", target, "--exit-on-error"], {
+      input: file.fd,
+    });
+  } finally {
+    await file.close();
+  }
   const adminUrl = new URL(process.env.DATABASE_ADMIN_URL!);
   adminUrl.pathname = `/${target}`;
   const appUrl = new URL(process.env.DATABASE_URL!);

@@ -828,7 +828,7 @@ test("outline edits share notebook concurrency checks and warn when undo changes
   );
 });
 
-async function reviewSetup(includeHypothesis = false, withSource = false) {
+async function reviewSetup(includeCandidates = false, withSource = false) {
   const x = await setup();
   const attachments = [];
   if (withSource) {
@@ -875,12 +875,17 @@ async function reviewSetup(includeHypothesis = false, withSource = false) {
       kind: "alternative_hypothesis",
       text: "A different interpretation",
     }),
+    protocol = outlineItem(first.turn_id, {
+      kind: "method",
+      text: "Measure baseline",
+      steps: ["Measure", "Compare"],
+    }),
     out = await req(
       x.owner,
       "POST",
       `${x.base}/sessions/${x.s.id}/outline`,
       {
-        items: includeHypothesis ? [item, alternative] : [item],
+        items: includeCandidates ? [item, alternative, protocol] : [item],
         reason: "Prepare selected source for review",
       },
       second.etag,
@@ -892,6 +897,7 @@ async function reviewSetup(includeHypothesis = false, withSource = false) {
     second,
     item,
     alternative,
+    protocol,
     outline: out.json(),
     reviewBody: {
       outline_revision: 1,
@@ -1689,4 +1695,90 @@ test("mixed batches preflight shared artifact freshness in both publication orde
       assert.equal(read.json().content.source_refs.length, 1);
     }
   }
+});
+
+test("a published method retains reviewed steps and can be pinned by a research task", async () => {
+  const x = await reviewSetup(true, true),
+    review = await grantReview(x);
+  const path = x.base + "/outline-reviews/" + review.id;
+  const decision = await req(
+    x.peer,
+    "POST",
+    path + "/decisions",
+    {
+      disposition: "accepted",
+      conflict_declaration: "none",
+      reason: "Reviewed the protocol",
+    },
+    review.etag,
+  );
+  const version = decision.json().etag;
+  const fields = {
+    item_id: x.protocol.id,
+    title: "Reviewed protocol",
+    language: "en",
+    metrics: ["Temperature"],
+    constraints: ["Use calibrated readings"],
+    ethical_constraints: [],
+  };
+  const previewPath = path + "/claim-preview",
+    candidates = path + "/claim-candidates";
+  for (const invalid of [
+    { metrics: [] },
+    { ordered_steps: ["Changed after review"] },
+  ]) {
+    assert.equal(
+      (
+        await req(
+          x.owner,
+          "POST",
+          previewPath,
+          { ...fields, ...invalid },
+          version,
+        )
+      ).statusCode,
+      422,
+    );
+  }
+  const preview = (
+    await req(x.owner, "POST", previewPath, fields, version)
+  ).json();
+  assert.deepEqual(preview.content.ordered_steps, x.protocol.steps);
+  assert.equal(preview.content.source_refs.length, 1);
+  assert.equal(preview.provenance.item_id, x.protocol.id);
+  assert.equal(
+    (await req(x.owner, "POST", candidates, fields, version)).statusCode,
+    201,
+  );
+  await admin.query("SELECT refresh_freshness($1)", [x.w]);
+  const published = await req(
+    x.owner,
+    "POST",
+    candidates + "/publish",
+    { versions: [1], audience: "workspace", confirmation: true },
+    version,
+  );
+  assert.equal(published.statusCode, 201, published.body);
+  const pin = published.json().published[0];
+  const obj = (
+    await req(x.peer, "GET", x.base + "/objects/" + pin.object_id)
+  ).json();
+  assert.equal(obj.type, "method");
+  assert.deepEqual(obj.content, preview.content);
+  const method_ref = { id: obj.id, revision: pin.revision };
+  const task = await req(x.peer, "POST", x.base + "/objects", {
+    type: "research_task",
+    schema_version: 1,
+    content: {
+      title: "Apply protocol",
+      body: "Measure baseline",
+      language: "en",
+      source_refs: [],
+      rationale: "Test consistency",
+      method_ref,
+      acceptance_criteria: ["Collect readings"],
+    },
+  });
+  assert.equal(task.statusCode, 201, task.body);
+  assert.deepEqual(task.json().content.method_ref, method_ref);
 });

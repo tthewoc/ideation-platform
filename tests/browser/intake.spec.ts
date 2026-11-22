@@ -226,6 +226,28 @@ test("private partial notes preserve wording, undo branches without deletion and
         name: "Alternative hypothesis outline item",
       }),
     ).toBeVisible();
+    await outline.getByLabel("Outline category").selectOption("method");
+    await outline
+      .getByLabel("Outline statement")
+      .fill("Compare baseline readings");
+    await outline
+      .getByLabel("Source notebook turns")
+      .selectOption({ label: "Turn 2: Second thought, still incomplete" });
+    await outline
+      .getByLabel("Relation to original wording")
+      .selectOption("human_conjecture");
+    await outline
+      .getByLabel("Ordered method steps")
+      .fill("Read baseline\nCompare readings");
+    await outline
+      .getByLabel("Reason for outline revision")
+      .fill("Document the comparison protocol");
+    await outline
+      .getByRole("button", { name: "Add outline item", exact: true })
+      .click();
+    await expect(
+      outline.getByRole("article", { name: "Method outline item" }),
+    ).toBeVisible();
     await outline.getByLabel("Independent outline reviewer ID").fill(peerId);
     await outline
       .getByLabel("Purpose of outline review")
@@ -416,6 +438,39 @@ test("private partial notes preserve wording, undo branches without deletion and
         ),
       ).toBeVisible();
     }
+    await authorReviews
+      .getByLabel("Reviewed outline item")
+      .selectOption({ label: "method · Compare baseline readings" });
+    await authorReviews.getByLabel("Candidate title").fill("Baseline protocol");
+    await authorReviews
+      .getByLabel("Metrics (one per line)", { exact: true })
+      .fill("Temperature");
+    await authorReviews
+      .getByRole("button", { name: "Preview registry candidate" })
+      .click();
+    await expect(
+      preview.getByRole("listitem").filter({ hasText: "Compare readings" }),
+    ).toBeVisible();
+    await expect(preview).toContainText("Author-supplied metrics: Temperature");
+    await authorReviews
+      .getByRole("button", { name: "Save preview as private candidate" })
+      .click();
+    await expect(authorReviews.getByRole("log")).toContainText(
+      "version 4 saved",
+    );
+    await loadSaved.click();
+    await authorReviews
+      .getByText("Version 4 · Baseline protocol", { exact: true })
+      .click();
+    await authorReviews
+      .getByRole("checkbox", { name: /Share the candidate content/ })
+      .check();
+    await authorReviews
+      .getByRole("button", { name: "Publish candidate version 4" })
+      .click();
+    await expect(authorReviews.getByRole("log")).toContainText(
+      "Method published to the workspace",
+    );
     await authorReviews
       .getByLabel("Reason for revoking outline access")
       .fill("Close this limited review audience");

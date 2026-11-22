@@ -786,3 +786,39 @@ test("storage reconciliation preserves committed, new and in-flight files and re
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("workspace registration quota includes other members' private artifacts", async () => {
+  const first = await user(),
+    second = await user();
+  const ws = (
+    await req(first, "POST", "/v1/workspaces", { name: "Quota boundary" })
+  ).json().id;
+  await admin.query(
+    "INSERT INTO memberships VALUES($1,$2,ARRAY['member'],NULL)",
+    [ws, second.id],
+  );
+  await admin.query(
+    `WITH seeded AS (INSERT INTO objects(workspace_id,type,author_id) SELECT $1,'artifact',$2 FROM generate_series(1,98) RETURNING id,workspace_id)
+    INSERT INTO artifacts(workspace_id,object_id,kind,state) SELECT workspace_id,id,'physical','available' FROM seeded`,
+    [ws, first.id],
+  );
+  const path = `/v1/workspaces/${ws}/artifacts`;
+  assert.deepEqual((await req(second, "GET", path)).json().items, []);
+  const metadata = {
+    ...common,
+    kind: "physical",
+    license: "Inspection",
+    custodian: "Curator",
+    location: "Lab",
+    access_protocol: "Contact curator",
+    integrity_metadata: "Sealed",
+  };
+  for (const actor of [second, first]) {
+    const r = await req(actor, "POST", path, metadata);
+    assert.equal(r.statusCode, 201, r.body);
+  }
+  const rejected = await req(second, "POST", path, metadata);
+  assert.equal(rejected.statusCode, 429, rejected.body);
+  assert.equal(rejected.json().error.code, "artifact_quota");
+  assert.equal((await req(second, "GET", path)).json().items.length, 1);
+});

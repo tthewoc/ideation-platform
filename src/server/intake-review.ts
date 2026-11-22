@@ -11,7 +11,7 @@ import {
   etag,
 } from "./api.js";
 import { transaction, fail, missing } from "./db.js";
-import { claim, hypothesis, uuid, reason, type Ref } from "./schema.js";
+import { claim, hypothesis, method, uuid, reason, type Ref } from "./schema.js";
 import {
   edgeInput,
   insertEdge,
@@ -19,6 +19,7 @@ import {
   validateReferences,
   requireFreshInputs,
 } from "./graph-core.js";
+const candidateSchemas = { claim, hypothesis, method };
 const columns =
   "id,outline_revision,author_id,reviewer_id,state,version,expires_at,created_at,(expires_at<=clock_timestamp()) AS expired";
 async function request(c: PoolClient, w: string, id: string) {
@@ -151,25 +152,14 @@ export async function installIntakeReview(app: FastifyInstance) {
   );
   async function prepareCandidate(c: PoolClient, req: FastifyRequest) {
     const { w, id } = params(req);
-    const fields = z
-      .object({
-        item_id: uuid,
-        prediction: hypothesis.shape.prediction.optional(),
-        falsification_criteria:
-          hypothesis.shape.falsification_criteria.optional(),
-        title: claim.shape.title,
-        scope: claim.shape.scope,
-        language: claim.shape.language.trim().min(2),
-      })
-      .strict()
-      .parse(req.body);
+    const { item_id } = z.object({ item_id: uuid }).parse(req.body);
     await workspace(c, w, true);
     const r = await request(c, w, id);
     if (r.author_id !== req.session!.user_id)
       fail(
         403,
         "author_required",
-        "Only the notebook author can prepare a claim",
+        "Only the notebook author can prepare a candidate",
       );
     precondition(req, r.version);
     const packet = await checkedPacket(c, w, id);
@@ -185,14 +175,14 @@ export async function installIntakeReview(app: FastifyInstance) {
       );
     const item = packet.outline.items.find(
       (entry: { id: string; kind: string }) =>
-        entry.id === fields.item_id &&
-        ["claim", "alternative_hypothesis"].includes(entry.kind),
+        entry.id === item_id &&
+        ["claim", "alternative_hypothesis", "method"].includes(entry.kind),
     );
     if (!item)
       fail(
         422,
         "invalid_claim_item",
-        "Choose a claim or alternative hypothesis from the reviewed revision",
+        "Choose a claim, alternative hypothesis or method from the reviewed revision",
       );
     const pins = new Map<string, Ref>();
     for (const turn of packet.source_turns) {
@@ -201,21 +191,51 @@ export async function installIntakeReview(app: FastifyInstance) {
           pins.set(ref.id + ":" + ref.revision, ref);
     }
     const type =
-      item.kind === "alternative_hypothesis" ? "hypothesis" : "claim";
-    const content = (type === "claim" ? claim : hypothesis).parse({
-      ...(fields.prediction !== undefined && { prediction: fields.prediction }),
-      ...(fields.falsification_criteria !== undefined && {
-        falsification_criteria: fields.falsification_criteria,
-      }),
-      title: fields.title,
-      language: fields.language,
-      scope: fields.scope,
-      body: item.rationale,
-      proposition: item.text,
-      qualifiers: [item.basis],
+      item.kind === "method"
+        ? "method"
+        : item.kind === "alternative_hypothesis"
+          ? "hypothesis"
+          : "claim";
+    const common = z.object({
+      item_id: uuid,
+      title: claim.shape.title,
+      language: claim.shape.language.trim().min(2),
+    });
+    const claimFields = common.extend({ scope: claim.shape.scope });
+    const schema =
+      type === "method"
+        ? common.extend(
+            method.pick({
+              metrics: true,
+              constraints: true,
+              ethical_constraints: true,
+            }).shape,
+          )
+        : type === "hypothesis"
+          ? claimFields.extend(
+              hypothesis.pick({
+                prediction: true,
+                falsification_criteria: true,
+              }).shape,
+            )
+          : claimFields;
+    const { item_id: _, ...authorFields } = schema.strict().parse(req.body);
+    const reviewed =
+      type === "method"
+        ? {
+            body: [item.text, item.rationale].filter(Boolean).join("\n\n"),
+            ordered_steps: item.steps,
+          }
+        : {
+            body: item.rationale,
+            proposition: item.text,
+            qualifiers: [item.basis],
+          };
+    const content = candidateSchemas[type].parse({
+      ...authorFields,
+      ...reviewed,
       source_refs: [...pins.values()],
     });
-
     return {
       type,
       schema_version: 1,
@@ -228,15 +248,8 @@ export async function installIntakeReview(app: FastifyInstance) {
         basis: item.basis,
       },
       audience: "author",
-      reviewed_fields: ["proposition", "body", "qualifiers"],
-      author_supplied_fields: [
-        "title",
-        "scope",
-        "language",
-        ...(type === "hypothesis"
-          ? ["prediction", "falsification_criteria"]
-          : []),
-      ],
+      reviewed_fields: Object.keys(reviewed),
+      author_supplied_fields: Object.keys(authorFields),
     };
   }
   app.post(
@@ -305,7 +318,11 @@ export async function installIntakeReview(app: FastifyInstance) {
       const review = await request(c, w, id);
       precondition(req, review.version);
       if (review.author_id !== req.session!.user_id)
-        fail(403, "author_required", "Only the author may publish this claim");
+        fail(
+          403,
+          "author_required",
+          "Only the author may publish this candidate",
+        );
       const prepared = [];
       for (const version of "versions" in b ? b.versions : [b.version]) {
         const saved =
@@ -329,11 +346,9 @@ export async function installIntakeReview(app: FastifyInstance) {
             "This candidate version has already been published",
           );
         const type = z
-          .enum(["claim", "hypothesis"])
+          .enum(["claim", "hypothesis", "method"])
           .parse(saved.candidate.type);
-        const body = (type === "claim" ? claim : hypothesis).parse(
-          saved.candidate.content,
-        );
+        const body = candidateSchemas[type].parse(saved.candidate.content);
         await validateReferences(c, w, type, body, true);
         await requireFreshInputs(c, w, body);
         prepared.push({ version, type, body });

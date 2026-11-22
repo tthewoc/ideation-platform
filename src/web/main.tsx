@@ -46,7 +46,10 @@ function App() {
     [reason, F] = useState(""),
     [confirm, Q] = useState(false),
     [next, N] = useState<string | null>(null),
-    [projectItems, PI] = useState<Record<string, Atom[]>>({});
+    [projectCursor, setProjectCursor] = useState<string | null>(null),
+    [projectItems, PI] = useState<
+      Record<string, { items: Atom[]; next_cursor: string | null }>
+    >({});
   const generation = useRef(0);
   const renderGeneration = generation.current;
   const pendingWrites = useRef(new Map<string, string>());
@@ -56,6 +59,7 @@ function App() {
     pendingWrites.current.clear();
     A([]);
     P([]);
+    setProjectCursor(null);
     PI({});
     N(null);
     O(null);
@@ -113,6 +117,7 @@ function App() {
         O(null);
         H([]);
         P([]);
+        setProjectCursor(null);
         PI({});
       }
       if (
@@ -157,6 +162,7 @@ function App() {
     A(a.items);
     N(a.next_cursor);
     P(p.items);
+    setProjectCursor(p.next_cursor);
     PI({});
   }
   useEffect(() => {
@@ -194,6 +200,21 @@ function App() {
     E(true);
     H([]);
     Q(false);
+  }
+  async function loadReferences(id: string, cursor?: string) {
+    const page = await api(
+      `${base}/projects/${id}/objects${cursor ? "?cursor=" + cursor : ""}`,
+    );
+    PI((old) => {
+      if (cursor && old[id]?.next_cursor !== cursor) return old;
+      return {
+        ...old,
+        [id]: {
+          items: cursor ? [...old[id].items, ...page.items] : page.items,
+          next_cursor: page.next_cursor,
+        },
+      };
+    });
   }
   async function select(atom: Atom) {
     const value = await api(`${base}/objects/${atom.id}`);
@@ -787,16 +808,8 @@ function App() {
                   <article key={p.id}>
                     <h3>{p.name}</h3>
                     <button
-                      onClick={() =>
-                        run(async () =>
-                          PI({
-                            ...projectItems,
-                            [p.id]: (
-                              await api(`${base}/projects/${p.id}/objects`)
-                            ).items,
-                          }),
-                        )
-                      }
+                      disabled={busy}
+                      onClick={() => run(() => loadReferences(p.id))}
                     >
                       View references
                     </button>
@@ -839,7 +852,7 @@ function App() {
                     >
                       Remove project
                     </button>
-                    {projectItems[p.id]?.map((a) => (
+                    {projectItems[p.id]?.items.map((a) => (
                       <p key={a.id}>
                         <button onClick={() => run(() => select(a))}>
                           {a.content.title}
@@ -862,9 +875,40 @@ function App() {
                         </button>
                       </p>
                     ))}
+                    {projectItems[p.id]?.next_cursor && (
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          run(() =>
+                            loadReferences(
+                              p.id,
+                              projectItems[p.id].next_cursor!,
+                            ),
+                          )
+                        }
+                      >
+                        Load more references
+                      </button>
+                    )}
                   </article>
                 ))}
               </div>
+              {projectCursor && (
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    run(async () => {
+                      const page = await api(
+                        `${base}/projects?cursor=${projectCursor}`,
+                      );
+                      P((old) => [...old, ...page.items]);
+                      setProjectCursor(page.next_cursor);
+                    })
+                  }
+                >
+                  Load more projects
+                </button>
+              )}
             </section>
             <details>
               <summary>Workspace membership</summary>

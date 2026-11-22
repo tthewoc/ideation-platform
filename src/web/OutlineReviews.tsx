@@ -69,7 +69,9 @@ export function OutlineReviews({
                   });
                   const packet = await api(`${base}/outline-reviews/${r.id}`);
                   const eligible = packet.outline.items.filter((i: any) =>
-                    ["claim", "alternative_hypothesis"].includes(i.kind),
+                    ["claim", "alternative_hypothesis", "method"].includes(
+                      i.kind,
+                    ),
                   );
                   setPackets((p) => ({
                     ...p,
@@ -128,6 +130,18 @@ export function OutlineReviews({
                       onSubmit={(e) => {
                         e.preventDefault();
                         const f = new FormData(e.currentTarget);
+                        const fields: Record<string, unknown> =
+                          Object.fromEntries(f);
+                        for (const name of [
+                          "metrics",
+                          "constraints",
+                          "ethical_constraints",
+                        ])
+                          if (f.has(name))
+                            fields[name] = String(f.get(name))
+                              .split("\n")
+                              .map((line) => line.trim())
+                              .filter(Boolean);
                         run(async () => {
                           setPackets((old) => ({
                             ...old,
@@ -136,7 +150,7 @@ export function OutlineReviews({
                           const preview = await api(
                             `${base}/outline-reviews/${r.id}/claim-preview`,
                             "POST",
-                            Object.fromEntries(f),
+                            fields,
                             r.etag,
                           );
                           setPackets((old) => ({
@@ -177,10 +191,29 @@ export function OutlineReviews({
                         Candidate title
                         <input name="title" required maxLength={200} />
                       </label>
-                      <label>
-                        Candidate scope
-                        <textarea name="scope" required maxLength={50000} />
-                      </label>
+                      {packets[r.id].selectedItem.kind === "method" ? (
+                        <fieldset>
+                          <legend>Author-supplied method details</legend>
+                          {[
+                            ["metrics", "Metrics"],
+                            ["constraints", "Constraints"],
+                            ["ethical_constraints", "Ethical constraints"],
+                          ].map(([name, label]) => (
+                            <label key={name}>
+                              {label} (one per line)
+                              <textarea
+                                name={name}
+                                required={name === "metrics"}
+                              />
+                            </label>
+                          ))}
+                        </fieldset>
+                      ) : (
+                        <label>
+                          Candidate scope
+                          <textarea name="scope" required maxLength={50000} />
+                        </label>
+                      )}
                       <label>
                         Language code
                         <input
@@ -234,10 +267,40 @@ export function OutlineReviews({
                               </p>
                             </>
                           )}
-                          <p>
-                            Author-supplied scope:{" "}
-                            {packets[r.id].preview.content.scope}
-                          </p>
+                          {packets[r.id].preview.type === "method" ? (
+                            <>
+                              <h6>Reviewed method steps</h6>
+                              <ol>
+                                {packets[
+                                  r.id
+                                ].preview.content.ordered_steps.map(
+                                  (step: string, index: number) => (
+                                    <li key={index}>{step}</li>
+                                  ),
+                                )}
+                              </ol>
+                              {[
+                                ["metrics", "Author-supplied metrics"],
+                                ["constraints", "Author-supplied constraints"],
+                                [
+                                  "ethical_constraints",
+                                  "Author-supplied ethical constraints",
+                                ],
+                              ].map(([key, label]) => (
+                                <p key={key}>
+                                  {label}:{" "}
+                                  {packets[r.id].preview.content[key].join(
+                                    "; ",
+                                  ) || "None specified"}
+                                </p>
+                              ))}
+                            </>
+                          ) : (
+                            <p>
+                              Author-supplied scope:{" "}
+                              {packets[r.id].preview.content.scope}
+                            </p>
+                          )}
                           <p>
                             Language: {packets[r.id].preview.content.language}
                           </p>
@@ -248,7 +311,12 @@ export function OutlineReviews({
                               " ",
                             )}
                           </p>
-                          <p>Reasoning: {packets[r.id].preview.content.body}</p>
+                          <p>
+                            {packets[r.id].preview.type === "method"
+                              ? "Reviewed description"
+                              : "Reasoning"}
+                            : {packets[r.id].preview.content.body}
+                          </p>
                           <p>
                             Source turns:{" "}
                             {packets[r.id].preview.provenance.source_turn_ids
@@ -289,14 +357,11 @@ export function OutlineReviews({
                                 "POST",
                                 {
                                   item_id: p.provenance.item_id,
-                                  ...(p.type === "hypothesis" && {
-                                    prediction: p.content.prediction,
-                                    falsification_criteria:
-                                      p.content.falsification_criteria,
-                                  }),
-                                  title: p.content.title,
-                                  scope: p.content.scope,
-                                  language: p.content.language,
+                                  ...Object.fromEntries(
+                                    p.author_supplied_fields.map(
+                                      (name: string) => [name, p.content[name]],
+                                    ),
+                                  ),
                                 },
                                 r.etag,
                               );
@@ -529,7 +594,7 @@ export function OutlineReviews({
                                     },
                                   }));
                                   setMessage(
-                                    `${row.candidate.type === "hypothesis" ? "Hypothesis" : "Claim"} published to the workspace.`,
+                                    `${row.candidate.type === "method" ? "Method" : row.candidate.type === "hypothesis" ? "Hypothesis" : "Claim"} published to the workspace.`,
                                   );
                                 });
                               }}
@@ -579,6 +644,18 @@ export function OutlineReviews({
                   onSubmit={(e) => {
                     e.preventDefault();
                     const f = new FormData(e.currentTarget);
+                    const fields: Record<string, unknown> =
+                      Object.fromEntries(f);
+                    for (const name of [
+                      "metrics",
+                      "constraints",
+                      "ethical_constraints",
+                    ])
+                      if (f.has(name))
+                        fields[name] = String(f.get(name))
+                          .split("\n")
+                          .map((line) => line.trim())
+                          .filter(Boolean);
                     run(async () => {
                       await api(
                         `${base}/outline-reviews/${r.id}/decisions`,
@@ -624,6 +701,17 @@ export function OutlineReviews({
                 onSubmit={(e) => {
                   e.preventDefault();
                   const f = new FormData(e.currentTarget);
+                  const fields: Record<string, unknown> = Object.fromEntries(f);
+                  for (const name of [
+                    "metrics",
+                    "constraints",
+                    "ethical_constraints",
+                  ])
+                    if (f.has(name))
+                      fields[name] = String(f.get(name))
+                        .split("\n")
+                        .map((line) => line.trim())
+                        .filter(Boolean);
                   run(async () => {
                     await api(
                       `${base}/outline-reviews/${r.id}/revoke`,

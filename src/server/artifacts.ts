@@ -61,11 +61,11 @@ export async function installArtifacts(app: FastifyInstance) {
     mutation(req, reply, async (c, w) => {
       const b = artifact.parse(req.body),
         id = randomUUID();
-      const count = await c.query(
-        "SELECT count(*)::int n FROM artifacts WHERE workspace_id=$1 AND created_at>now()-interval '1 day'",
+      const quota = await c.query(
+        "SELECT artifact_registration_available($1) AS available",
         [w],
       );
-      if (count.rows[0].n >= 100)
+      if (!quota.rows[0].available)
         fail(
           429,
           "artifact_quota",
