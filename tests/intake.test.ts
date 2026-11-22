@@ -828,9 +828,43 @@ test("outline edits share notebook concurrency checks and warn when undo changes
   );
 });
 
-async function reviewSetup(includeHypothesis = false) {
-  const x = await setup(),
-    first = await note(x, x.s, "Explicitly shared source text"),
+async function reviewSetup(includeHypothesis = false, withSource = false) {
+  const x = await setup();
+  const attachments = [];
+  if (withSource) {
+    const created = await req(x.owner, "POST", x.base + "/artifacts", {
+      title: "Shared source",
+      body: "Test",
+      language: "en",
+      source_refs: [],
+      kind: "digital",
+      filename: "source.txt",
+      media_type: "text/plain",
+      byte_size: 1,
+      sha256: "b".repeat(64),
+      license: "CC0-1.0",
+    });
+    const artifact = created.json().object;
+    await admin.query(
+      "UPDATE artifacts SET state='available',scan_verdict='clean' WHERE object_id=$1",
+      [artifact.id],
+    );
+    const published = await req(
+      x.owner,
+      "POST",
+      x.base + "/objects/" + artifact.id + "/publish",
+      { revision: 1, confirmation: true },
+      artifact.etag,
+    );
+    assert.equal(published.statusCode, 200, published.body);
+    attachments.push({ id: artifact.id, revision: published.json().revision });
+  }
+  const first = await note(
+      x,
+      x.s,
+      "Explicitly shared source text",
+      attachments,
+    ),
     second = await note(
       x,
       first,
@@ -1592,4 +1626,67 @@ test("author previews a registry claim from the accepted revision with explicit 
     409,
   );
   assert.deepEqual((await req(x.owner, "GET", candidatePath)).json().items, []);
+});
+
+test("mixed batches preflight shared artifact freshness in both publication orders", async () => {
+  const x = await reviewSetup(true, true),
+    review = await grantReview(x);
+  const path = x.base + "/outline-reviews/" + review.id;
+  const decision = await req(
+    x.peer,
+    "POST",
+    path + "/decisions",
+    {
+      disposition: "accepted",
+      conflict_declaration: "none",
+      reason: "Reviewed both items",
+    },
+    review.etag,
+  );
+  const version = decision.json().etag;
+  const candidates = path + "/claim-candidates";
+  const fields = {
+    title: "Pinned observation",
+    scope: "One trial",
+    language: "en",
+  };
+  for (const versions of [
+    [1, 2],
+    [4, 3],
+  ]) {
+    for (const item of [
+      { item_id: x.item.id },
+      {
+        item_id: x.alternative.id,
+        prediction: "Baseline varies",
+        falsification_criteria: "Baseline constant",
+      },
+    ]) {
+      const saved = await req(
+        x.owner,
+        "POST",
+        candidates,
+        { ...fields, ...item },
+        version,
+      );
+      assert.equal(saved.statusCode, 201, saved.body);
+    }
+    await admin.query("SELECT refresh_freshness($1)", [x.w]);
+    const receipt = await req(
+      x.owner,
+      "POST",
+      candidates + "/publish",
+      { versions, audience: "workspace", confirmation: true },
+      version,
+    );
+    assert.equal(receipt.statusCode, 201, receipt.body);
+    for (const obj of receipt.json().published) {
+      const read = await req(
+        x.peer,
+        "GET",
+        x.base + "/objects/" + obj.object_id,
+      );
+      assert.equal(read.json().content.source_refs.length, 1);
+    }
+  }
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import { StructuredEditor } from "./StructuredEditor";
@@ -41,17 +41,48 @@ function App() {
     [kind, K] = useState("observation"),
     [title, T] = useState(""),
     [body, D] = useState(""),
+    [proposition, setProposition] = useState(""),
     [scope, C] = useState(""),
     [reason, F] = useState(""),
     [confirm, Q] = useState(false),
     [next, N] = useState<string | null>(null),
     [projectItems, PI] = useState<Record<string, Atom[]>>({});
+  const generation = useRef(0);
+  const renderGeneration = generation.current;
+  const pendingWrites = useRef(new Map<string, string>());
+  function switchWorkspace(id: string) {
+    if (id === workspace) return;
+    generation.current++;
+    pendingWrites.current.clear();
+    A([]);
+    P([]);
+    PI({});
+    N(null);
+    O(null);
+    H([]);
+    E(false);
+    Q(false);
+    setConflict(null);
+    setStructured(false);
+    M("");
+    B(false);
+    W(id);
+  }
   async function api(
     path: string,
     method = "GET",
     data?: unknown,
     etag?: string,
   ) {
+    const current = renderGeneration;
+    if (current !== generation.current) throw new Error("Workspace changed");
+    const payload = data === undefined ? undefined : JSON.stringify(data);
+    const command = JSON.stringify([method, path, etag, payload]);
+    let key: string | undefined;
+    if (method !== "GET") {
+      key = pendingWrites.current.get(command) ?? crypto.randomUUID();
+      pendingWrites.current.set(command, key);
+    }
     const res = await fetch(path, {
       method,
       headers: {
@@ -59,15 +90,18 @@ function App() {
         ...(method !== "GET"
           ? {
               "x-csrf-token": session?.csrf ?? "",
-              "idempotency-key": crypto.randomUUID(),
+              "idempotency-key": key!,
             }
           : {}),
         ...(etag ? { "If-Match": etag } : {}),
       },
-      body: data === undefined ? undefined : JSON.stringify(data),
+      body: payload,
     });
-    if (res.status === 204) return null;
-    const value = await res.json();
+    const value = res.status === 204 ? null : await res.json();
+    if (current !== generation.current) throw new Error("Workspace changed");
+    if (key && res.status < 500 && pendingWrites.current.get(command) === key)
+      pendingWrites.current.delete(command);
+
     if (!res.ok) {
       if (res.status === 401) {
         S(null);
@@ -87,7 +121,10 @@ function App() {
         path.startsWith(`${base}/objects/`)
       ) {
         const latest = await fetch(`${base}/objects/${selected.id}`);
-        if (latest.ok) setConflict(await latest.json());
+        if (latest.ok) {
+          const item = await latest.json();
+          if (current === generation.current) setConflict(item);
+        }
       }
       throw new Error(value.error?.message ?? "Request failed");
     }
@@ -111,10 +148,12 @@ function App() {
   }, []);
   async function refresh() {
     if (!workspace) return;
+    const current = renderGeneration;
     const [a, p] = await Promise.all([
       api(`${base}/objects`),
       api(`${base}/projects`),
     ]);
+    if (current !== generation.current) return;
     A(a.items);
     N(a.next_cursor);
     P(p.items);
@@ -125,17 +164,21 @@ function App() {
     H([]);
     E(false);
     setStructured(false);
-    refresh().catch((e) => M(e.message));
+    const current = renderGeneration;
+    refresh().catch((e) => {
+      if (current === generation.current) M(e.message);
+    });
   }, [workspace]);
   async function run(fn: () => Promise<void>) {
+    const current = renderGeneration;
     B(true);
     M("");
     try {
       await fn();
     } catch (e) {
-      M((e as Error).message);
+      if (current === generation.current) M((e as Error).message);
     } finally {
-      B(false);
+      if (current === generation.current) B(false);
     }
   }
   function edit(atom?: Atom) {
@@ -145,6 +188,7 @@ function App() {
     K(atom?.type ?? "observation");
     T(atom?.content.title ?? "");
     D(atom?.content.body ?? "");
+    setProposition(atom?.content.proposition ?? "");
     C(atom?.content.context ?? atom?.content.scope ?? "");
     F("");
     E(true);
@@ -165,16 +209,16 @@ function App() {
         ? {
             title,
             body,
-            language: "en",
+            language: selected?.content.language ?? "en",
             source_refs: selected?.content.source_refs ?? [],
-            proposition: body,
+            proposition,
             scope,
             qualifiers: selected?.content.qualifiers ?? ["Unverified"],
           }
         : {
             title,
             body,
-            language: "en",
+            language: selected?.content.language ?? "en",
             source_refs: selected?.content.source_refs ?? [],
             context: scope,
             observed_at: selected?.content.observed_at ?? null,
@@ -253,7 +297,10 @@ function App() {
         <div className="workspace">
           <label>
             Workspace
-            <select value={workspace} onChange={(e) => W(e.target.value)}>
+            <select
+              value={workspace}
+              onChange={(e) => switchWorkspace(e.target.value)}
+            >
               <option value="">Choose a workspace</option>
               {session.workspaces.map((w: any) => (
                 <option key={w.id} value={w.id}>
@@ -271,7 +318,7 @@ function App() {
                   name: f.get("name"),
                 });
                 await loadSession();
-                W(w.id);
+                switchWorkspace(w.id);
                 M("Workspace created.");
               });
             }}
@@ -419,14 +466,23 @@ function App() {
                         maxLength={200}
                       />
                     </label>
+                    {kind === "claim" && (
+                      <label>
+                        Proposition
+                        <textarea
+                          required
+                          maxLength={50000}
+                          value={proposition}
+                          onChange={(e) => setProposition(e.target.value)}
+                        />
+                      </label>
+                    )}
                     <label>
-                      {kind === "claim"
-                        ? "Proposition / description"
-                        : "What did you observe?"}
+                      {kind === "claim" ? "Rationale" : "What did you observe?"}
                       <textarea
                         value={body}
                         onChange={(e) => D(e.target.value)}
-                        required
+                        required={kind !== "claim"}
                         maxLength={50000}
                       />
                     </label>

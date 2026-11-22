@@ -6,7 +6,13 @@ import { buildApp } from "../src/server/app.js";
 import { db, authDb, transaction } from "../src/server/db.js";
 import { hash } from "../src/server/auth.js";
 import { config } from "../src/server/config.js";
-import { digest } from "../src/server/artifact-storage.js";
+import { mkdtemp, writeFile, utimes, access, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  digest,
+  reconcileArtifactStorage,
+} from "../src/server/artifact-storage.js";
 import { scanPendingArtifact } from "../src/server/artifact-scanner.js";
 const app = await buildApp();
 await app.ready();
@@ -745,4 +751,38 @@ test("application role cannot forge a clean scan or bypass immutable artifact me
     artifact.etag,
   );
   assert.equal(r.statusCode, 409, r.body);
+});
+
+test("storage reconciliation preserves committed, new and in-flight files and removes rolled-back uploads", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "registry-storage-test-"));
+  const key = randomUUID(),
+    recent = randomUUID();
+  const referenced = (
+    await admin.query(
+      "SELECT storage_key FROM artifacts WHERE storage_key IS NOT NULL LIMIT 1",
+    )
+  ).rows[0].storage_key;
+  const client = await admin.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,1))", [
+      key,
+    ]);
+    for (const id of [key, recent, referenced])
+      await writeFile(join(dir, id), "test");
+    for (const id of [key, referenced])
+      await utimes(join(dir, id), new Date(0), new Date(0));
+    await reconcileArtifactStorage(worker, dir);
+    await access(join(dir, key));
+    await assert.rejects(client.query("SELECT 1/0"));
+    await client.query("ROLLBACK");
+    await reconcileArtifactStorage(worker, dir);
+    await assert.rejects(access(join(dir, key)), { code: "ENOENT" });
+    await access(join(dir, recent));
+    await access(join(dir, referenced));
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+    await rm(dir, { recursive: true, force: true });
+  }
 });

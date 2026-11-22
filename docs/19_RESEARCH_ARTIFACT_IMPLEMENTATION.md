@@ -122,13 +122,15 @@ for changed bytes or licensing/custody metadata and retain the old provenance.
 `npm run setup` prepares PostgreSQL, applies checksummed migrations and pulls the
 local scanner. `npm run dev` runs the existing worker with artifact processing.
 `ARTIFACT_STORAGE_ROOT` overrides `.local/artifacts`; both API and worker require the
-same private storage. The restore drill copies registered blobs into a separate
-scratch directory and validates digest/size against the restored database before
-removing the scratch copy.
+same private storage. Use a dedicated storage root for each database. Once an hour,
+the worker checks files older than one hour, skips keys locked by active uploads,
+and removes unreferenced artifact files. The restore drill captures a database
+dump and blob directory, restores them separately, and checks each referenced
+blob against its immutable digest and size.
 
 The local filesystem backend is intentionally limited to small artifacts. A durable
 object-store adapter, storage quotas across retention periods, policy-driven deletion,
-orphan-blob reconciliation after a failed database commit, full backup automation
+full backup automation
 and production recovery remain deployment work. Scanner failure is fail-closed;
 there is no “trust anyway” action. Correct a failed ingestion by registering a new
 artifact. Search/export remain slice 4; the registry lists null outcomes, but this

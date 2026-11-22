@@ -8,6 +8,7 @@ import {
   mutation,
   object,
   view,
+  views,
   append,
   precondition,
   params,
@@ -121,9 +122,7 @@ export async function installReviews(app: FastifyInstance) {
         [w, q.claim_id ?? null, q.cursor ?? null],
       );
       return {
-        items: await Promise.all(
-          rows.rows.slice(0, 25).map((o) => view(c, w, o.id)),
-        ),
+        items: await views(c, w, rows.rows.slice(0, 25)),
         next_cursor: rows.rows.length > 25 ? rows.rows[24].id : null,
       };
     }),

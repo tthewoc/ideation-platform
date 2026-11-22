@@ -306,7 +306,7 @@ export async function installIntakeReview(app: FastifyInstance) {
       precondition(req, review.version);
       if (review.author_id !== req.session!.user_id)
         fail(403, "author_required", "Only the author may publish this claim");
-      const published = [];
+      const prepared = [];
       for (const version of "versions" in b ? b.versions : [b.version]) {
         const saved =
           (
@@ -336,6 +336,10 @@ export async function installIntakeReview(app: FastifyInstance) {
         );
         await validateReferences(c, w, type, body, true);
         await requireFreshInputs(c, w, body);
+        prepared.push({ version, type, body });
+      }
+      const published = [];
+      for (const { version, type, body } of prepared) {
         const obj = (
           await c.query(
             "INSERT INTO objects(workspace_id,type,author_id) VALUES($1,$2,actor()) RETURNING *",

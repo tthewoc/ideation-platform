@@ -332,12 +332,10 @@ test("private partial notes preserve wording, undo branches without deletion and
       [3, "Extended baseline"],
     ] as const) {
       if (version === 3) {
-        await authorReviews
-          .getByLabel("Reviewed outline item")
-          .selectOption({
-            label:
-              "alternative hypothesis · Ambient conditions explain the difference",
-          });
+        await authorReviews.getByLabel("Reviewed outline item").selectOption({
+          label:
+            "alternative hypothesis · Ambient conditions explain the difference",
+        });
         await authorReviews
           .getByLabel("Prediction", { exact: true })
           .fill("The baseline varies with temperature");

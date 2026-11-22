@@ -64,6 +64,12 @@ npm run test:graph-load
 npm run format:check
 ```
 
+To run the recovery drill in two stages, use `npm run test:restore -- --capture`
+and retain the printed backup directory. Then run
+`npm run test:restore -- --from-backup DIRECTORY` to restore the database and
+artifact files using only that backup. The directory contains private data and
+inherits the local backup directory's owner-only access.
+
 Integration tests use actual PostgreSQL roles, RLS and transactions. They create
 synthetic fixtures in the configured local database; they do not reset existing
 data. Browser tests run real OIDC/PKCE login and a full publication/project journey,

@@ -193,44 +193,41 @@ export function evaluate(
   const blockers: string[] = [];
   const development = manifest.cases.filter((c) => c.split === "development"),
     heldOut = manifest.cases.filter((c) => c.split === "held_out");
-  if (development.length < 40)
+  const seen = new Map<string, string>();
+  const distinct = manifest.cases.filter((c) => {
+    const v = known.get(c.id)!;
+    const fingerprint = sha256(
+      JSON.stringify([
+        v.inputs.map((i) => i.text),
+        v.action,
+        v.expected,
+        v.forbidden,
+      ]),
+    );
+    const previous = seen.get(fingerprint);
+    if (previous) {
+      blockers.push(
+        previous === c.split
+          ? `${c.split} repeats case content: ${c.id}`
+          : "Held-out corpus repeats development content",
+      );
+      return false;
+    }
+    seen.set(fingerprint, c.split);
+    return true;
+  });
+  if (distinct.filter((c) => c.split === "development").length < 40)
     blockers.push("Development corpus requires at least 40 cases");
-  if (heldOut.length < 20)
+  if (distinct.filter((c) => c.split === "held_out").length < 20)
     blockers.push("Held-out corpus requires at least 20 cases");
   for (const tag of ["adversarial", "contradiction_null"] as const)
-    if (development.filter((c) => c.tags.includes(tag)).length < 10)
+    if (
+      distinct.filter((c) => c.split === "development" && c.tags.includes(tag))
+        .length < 10
+    )
       blockers.push(`Development corpus requires at least 10 ${tag} cases`);
   if (heldOut.some((c) => c.used_for_tuning))
     blockers.push("Held-out cases were used for tuning");
-  const developmentContent = new Set(
-    development.map((c) => {
-      const v = known.get(c.id)!;
-      return sha256(
-        JSON.stringify([
-          v.inputs.map((i) => i.text),
-          v.action,
-          v.expected,
-          v.forbidden,
-        ]),
-      );
-    }),
-  );
-  if (
-    heldOut.some((c) => {
-      const v = known.get(c.id)!;
-      return developmentContent.has(
-        sha256(
-          JSON.stringify([
-            v.inputs.map((i) => i.text),
-            v.action,
-            v.expected,
-            v.forbidden,
-          ]),
-        ),
-      );
-    })
-  )
-    blockers.push("Held-out corpus repeats development content");
   const bundle =
     bundleInput === undefined ? undefined : bundleSchema.parse(bundleInput);
   if (!bundle) blockers.push("No model-run evidence supplied");

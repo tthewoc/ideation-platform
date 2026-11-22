@@ -235,6 +235,16 @@ test("private correction preserves published projection for other members", asyn
   const read = await request(bob, "GET", `/v1/workspaces/${w}/objects/${o.id}`);
   assert.equal(read.json().revision, published.revision);
   assert.notEqual(read.json().content.title, "Private correction");
+  for (const [user, expected] of [
+    [alice, r.json()],
+    [bob, read.json()],
+  ] as const) {
+    const page = await request(user, "GET", `/v1/workspaces/${w}/objects`);
+    assert.deepEqual(
+      page.json().items.find((item: any) => item.id === o.id),
+      expected,
+    );
+  }
 });
 test("two projects reference one atom and deleting a project preserves atom and other reference", async () => {
   const create = () =>

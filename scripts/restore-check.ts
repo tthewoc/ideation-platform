@@ -1,11 +1,11 @@
 import { config } from "dotenv";
 import { spawnSync } from "node:child_process";
-import { writeFile, readFile, mkdtemp, rm } from "node:fs/promises";
+import { writeFile, readFile, mkdtemp, rm, cp } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import pg from "pg";
 import { join } from "node:path";
-import { readArtifact, digest } from "../src/server/artifact-storage.js";
+import { storageRoot, digest } from "../src/server/artifact-storage.js";
 config({ path: ".local/dev.env", quiet: true });
 function docker(args: string[], input?: Buffer) {
   const r = spawnSync(
@@ -17,8 +17,28 @@ function docker(args: string[], input?: Buffer) {
   return r.stdout;
 }
 const target = `ideator_restore_${randomUUID().replaceAll("-", "")}`;
-const dump = docker(["pg_dump", "-U", "postgres", "-d", "ideator", "-Fc"]);
-await writeFile(".local/restore-check.dump", dump, { mode: 0o600 });
+const [mode, source] = process.argv.slice(2);
+if (
+  mode &&
+  !(mode === "--capture" && !source) &&
+  !(mode === "--from-backup" && source)
+)
+  throw new Error("Use --capture or --from-backup DIRECTORY");
+const backupRoot = source ?? (await mkdtemp(".local/restore-backup-"));
+const dumpFile = join(backupRoot, "database.dump");
+if (!source) {
+  await writeFile(
+    dumpFile,
+    docker(["pg_dump", "-U", "postgres", "-d", "ideator", "-Fc"]),
+    { mode: 0o600 },
+  );
+  await cp(storageRoot(), join(backupRoot, "artifacts"), { recursive: true });
+}
+if (mode === "--capture") {
+  console.log(backupRoot);
+  process.exit(0);
+}
+const dump = await readFile(dumpFile);
 docker(["createdb", "-U", "postgres", target]);
 try {
   docker(
@@ -90,6 +110,8 @@ try {
       "export_policies",
       "export_policy_events",
       "revision_embeddings",
+      "outline_claim_candidates",
+      "outline_claim_publications",
       "intake_review_requests",
       "intake_review_decisions",
       "intake_outline_revisions",
@@ -133,13 +155,12 @@ try {
     const blobBackup = await mkdtemp(".local/restore-artifacts-");
     let restoredBlobs = 0;
     try {
+      await cp(join(backupRoot, "artifacts"), blobBackup, { recursive: true });
       const blobs = await admin.query(
         "SELECT a.storage_key,r.content FROM artifacts a JOIN revisions r ON r.object_id=a.object_id AND r.revision=1 WHERE a.storage_key IS NOT NULL",
       );
       for (const a of blobs.rows) {
-        const bytes = await readArtifact(a.storage_key);
         const targetFile = join(blobBackup, a.storage_key);
-        await writeFile(targetFile, bytes, { mode: 0o600, flag: "wx" });
         const restored = await readFile(targetFile);
         assert.equal(digest(restored), a.content.sha256);
         assert.equal(restored.length, a.content.byte_size);
@@ -192,5 +213,6 @@ try {
     await runtime.end();
   }
 } finally {
+  if (!source) await rm(backupRoot, { recursive: true, force: true });
   docker(["dropdb", "-U", "postgres", target]);
 }

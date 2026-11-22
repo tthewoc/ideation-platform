@@ -140,3 +140,109 @@ test("OIDC, private draft, publication, correction history and project reuse", a
     page.getByRole("link", { name: "Sign in", exact: true }),
   ).toBeVisible();
 });
+
+test("workspace changes discard late reads and claim retries preserve scientific fields", async ({
+  page,
+}) => {
+  const source = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    target = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    user = "author";
+  const atom = {
+    id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    author_id: user,
+    type: "claim",
+    origin: "human",
+    lifecycle: "draft",
+    has_draft: true,
+    revision: 1,
+    etag: '"1"',
+    review_state: "unreviewed",
+    validity: "active",
+    freshness: "current",
+    content: {
+      title: "French claim",
+      body: "Raisonnement",
+      proposition: "Prédiction",
+      language: "fr",
+      scope: "Essai",
+      qualifiers: [],
+      source_refs: [],
+    },
+  };
+  let release!: () => void, started!: () => void, delivered!: () => void;
+  const wait = new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+    starting = new Promise<void>((resolve) => {
+      started = resolve;
+    }),
+    finished = new Promise<void>((resolve) => {
+      delivered = resolve;
+    });
+  const keys: string[] = [];
+  await page.route("**/v1/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/v1/session")
+      return route.fulfill({
+        json: {
+          user: { id: user, name: "Author" },
+          csrf: "token",
+          workspaces: [
+            { id: source, name: "Source" },
+            { id: target, name: "Target" },
+          ],
+        },
+      });
+    if (path.endsWith("/projects"))
+      return route.fulfill({ json: { items: [] } });
+    if (path === `/v1/workspaces/${source}/objects`) {
+      started();
+      await wait;
+      await route.fulfill({
+        json: {
+          items: [
+            {
+              ...atom,
+              content: { ...atom.content, title: "Old workspace claim" },
+            },
+          ],
+        },
+      });
+      delivered();
+      return;
+    }
+    if (path.endsWith("/draft")) {
+      keys.push(route.request().headers()["idempotency-key"]);
+      const payload = route.request().postDataJSON();
+      expect(payload.content).toEqual({ ...atom.content, title: "New title" });
+      if (keys.length === 1) return route.abort("failed");
+      return route.fulfill({ json: { ...atom, content: payload.content } });
+    }
+    return route.fulfill({
+      json: path.endsWith("/objects") ? { items: [atom] } : atom,
+    });
+  });
+  await page.goto("/");
+  await starting;
+  await page
+    .getByRole("combobox", { name: "Workspace", exact: true })
+    .selectOption(target);
+  const card = page.getByRole("button", { name: /French claim/ });
+  await expect(card).toBeVisible();
+  release();
+  await finished;
+  await expect(
+    page.getByRole("button", { name: /Old workspace claim/ }),
+  ).toHaveCount(0);
+  await card.click();
+  await page.getByRole("button", { name: "Edit draft", exact: true }).click();
+  await page.getByLabel("Title", { exact: true }).fill("New title");
+  await page.getByLabel("Reason for this revision").fill("Title only");
+  const save = page.getByRole("button", { name: "Save private draft" });
+  await save.click();
+  await expect(page.getByRole("status")).toContainText(/fetch|network/i);
+  await save.click();
+  await expect(page.getByRole("status")).toHaveText("Private draft saved.");
+  expect(keys).toHaveLength(2);
+  expect(keys[1]).toBe(keys[0]);
+});

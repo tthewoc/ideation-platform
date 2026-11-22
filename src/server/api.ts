@@ -5,12 +5,7 @@ import { z } from "zod";
 import { transaction, authDb, fail, missing } from "./db.js";
 import { uuid, createObject, content, named, roles } from "./schema.js";
 import { requireMfa } from "./auth.js";
-import {
-  validateReferences,
-  onPublication,
-  state,
-  freshness,
-} from "./graph-core.js";
+import { validateReferences, onPublication } from "./graph-core.js";
 type Result = { body: unknown; status?: number; etag?: string };
 export const etag = (v: number) => `"${v}"`;
 export function precondition(req: FastifyRequest, version: number) {
@@ -176,55 +171,44 @@ export async function view(
   id: string,
   requestedRevision?: number,
 ) {
-  const o = await object(c, w, id);
-  const drafts = await c.query(
-    "SELECT revision FROM draft_heads WHERE workspace_id=$1 AND object_id=$2 AND author_id=actor()",
-    [w, id],
+  uuid.parse(id);
+  return (await views(c, w, [{ id }], requestedRevision))[0] ?? missing();
+}
+export async function views(
+  c: PoolClient,
+  w: string,
+  items: { id: string }[],
+  requestedRevision?: number,
+) {
+  const result = await c.query(
+    `
+    SELECT o.id,o.workspace_id,o.type,o.author_id,o.current_revision,o.created_at,
+      r.created_at AS updated_at,r.revision,r.content,r.origin,
+      coalesce(s.review_state,'unreviewed') AS review_state,coalesce(s.validity,'active') AS validity,
+      coalesce(s.version,1) AS state_version,
+      CASE WHEN f.epoch=ws.content_epoch THEN f.status ELSE 'unknown' END AS freshness,
+      CASE WHEN d.revision=r.revision THEN 'draft' WHEN o.current_revision IS NOT NULL THEN 'published' ELSE 'submitted' END AS lifecycle,
+      coalesce(d.revision=r.revision,false) AS has_draft,
+      CASE WHEN o.author_id=actor() THEN o.version ELSE r.revision END AS edit_version
+    FROM unnest($2::uuid[]) WITH ORDINALITY AS wanted(id,ord)
+    JOIN objects o ON o.id=wanted.id AND o.workspace_id=$1
+    JOIN workspaces ws ON ws.id=o.workspace_id
+    LEFT JOIN draft_heads d ON d.workspace_id=o.workspace_id AND d.object_id=o.id AND d.author_id=actor()
+    JOIN revisions r ON r.workspace_id=o.workspace_id AND r.object_id=o.id
+      AND r.revision=coalesce($3::integer,d.revision,o.current_revision,(
+        SELECT max(sub.revision) FROM submissions sub WHERE sub.workspace_id=o.workspace_id AND sub.object_id=o.id
+        AND actor()=ANY(sub.reviewer_ids) AND sub.state='submitted' AND sub.expires_at>now()))
+    LEFT JOIN revision_status s ON s.workspace_id=r.workspace_id AND s.object_id=r.object_id AND s.revision=r.revision
+    LEFT JOIN revision_freshness f ON f.workspace_id=r.workspace_id AND f.object_id=r.object_id AND f.revision=r.revision
+    ORDER BY wanted.ord`,
+    [w, items.map((o) => o.id), requestedRevision ?? null],
   );
-  const granted = (
-    await c.query(
-      "SELECT revision FROM submissions WHERE workspace_id=$1 AND object_id=$2 AND actor()=ANY(reviewer_ids) AND state='submitted' AND expires_at>now() ORDER BY revision DESC LIMIT 1",
-      [w, id],
-    )
-  ).rows[0]?.revision;
-  const revision =
-    requestedRevision ??
-    drafts.rows[0]?.revision ??
-    o.current_revision ??
-    granted;
-  const r = await c.query(
-    "SELECT * FROM revisions WHERE workspace_id=$1 AND object_id=$2 AND revision=$3",
-    [w, id, revision],
-  );
-  if (!r.rowCount) missing();
-  const status = await state(c, w, { id, revision });
-  const owner = (
-    await c.query("SELECT actor() = $1::uuid AS yes", [o.author_id])
-  ).rows[0].yes;
-  return {
-    id: o.id,
-    workspace_id: o.workspace_id,
-    type: o.type,
-    author_id: o.author_id,
-    current_revision: o.current_revision,
-    created_at: o.created_at,
-    updated_at: r.rows[0]?.created_at,
-    revision,
-    content: r.rows[0]?.content,
-    origin: r.rows[0].origin,
-    review_state: status.review_state,
-    validity: status.validity,
-    state_etag: etag(status.version),
-    freshness: await freshness(c, w, { id, revision }),
-    lifecycle:
-      drafts.rows[0]?.revision === revision
-        ? "draft"
-        : o.current_revision
-          ? "published"
-          : "submitted",
-    has_draft: drafts.rows[0]?.revision === revision,
-    etag: etag(owner ? o.version : revision),
-  };
+  if (result.rows.length !== items.length) missing();
+  return result.rows.map(({ edit_version, state_version, ...row }) => ({
+    ...row,
+    etag: etag(edit_version),
+    state_etag: etag(state_version),
+  }));
 }
 function page(req: FastifyRequest) {
   const q = z
@@ -392,9 +376,7 @@ export async function installApi(app: FastifyInstance) {
         "SELECT id FROM objects WHERE workspace_id=$1 AND ($2::uuid IS NULL OR id>$2) ORDER BY id LIMIT $3",
         [w, p.cursor ?? null, p.limit + 1],
       );
-      const items = await Promise.all(
-        r.rows.slice(0, p.limit).map((o) => view(c, w, o.id)),
-      );
+      const items = await views(c, w, r.rows.slice(0, p.limit));
       return {
         items,
         next_cursor: r.rows.length > p.limit ? items.at(-1)?.id : null,
@@ -595,15 +577,12 @@ export async function installApi(app: FastifyInstance) {
         missing();
       const p = page(req);
       const r = await c.query(
-        "SELECT object_id FROM project_objects WHERE workspace_id=$1 AND project_id=$2 AND ($3::uuid IS NULL OR object_id>$3) ORDER BY object_id LIMIT $4",
+        "SELECT object_id AS id FROM project_objects WHERE workspace_id=$1 AND project_id=$2 AND ($3::uuid IS NULL OR object_id>$3) ORDER BY object_id LIMIT $4",
         [w, id, p.cursor ?? null, p.limit + 1],
       );
       return {
-        items: await Promise.all(
-          r.rows.slice(0, p.limit).map((o) => view(c, w, o.object_id)),
-        ),
-        next_cursor:
-          r.rows.length > p.limit ? r.rows[p.limit - 1].object_id : null,
+        items: await views(c, w, r.rows.slice(0, p.limit)),
+        next_cursor: r.rows.length > p.limit ? r.rows[p.limit - 1].id : null,
       };
     }),
   );

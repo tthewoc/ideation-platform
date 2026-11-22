@@ -68,7 +68,7 @@ test("independent private review, explicit publication, evidence assessment and 
       .selectOption("claim");
     await page.getByLabel("Title", { exact: true }).fill("Reviewed claim");
     await page
-      .getByLabel("Proposition / description")
+      .getByLabel("Proposition", { exact: true })
       .fill("Cooling decreases at the specified load.");
     await page
       .getByLabel("Scope", { exact: true })

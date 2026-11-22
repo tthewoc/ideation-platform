@@ -267,6 +267,14 @@ test("exact submitted revision is readable; earlier drafts, self-review and stal
   assert.equal(sub.statusCode, 201, sub.body);
   const s = sub.json();
   const visible = await read(o, reviewer, o.revision);
+  const list = (
+    await req(reviewer, "GET", `/v1/workspaces/${w}/objects`)
+  ).json();
+  assert.deepEqual(
+    list.items.find((item: any) => item.id === o.id),
+    visible,
+  );
+  assert.equal(visible.lifecycle, "submitted");
   assert.equal(visible.content.title, "Review only this revision");
   assert.equal(
     (

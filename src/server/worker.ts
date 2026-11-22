@@ -1,6 +1,7 @@
 import "./config.js";
 import { deliverFixture } from "./ai-fixture.js";
 import { scanPendingArtifact } from "./artifact-scanner.js";
+import { reconcileArtifactStorage } from "./artifact-storage.js";
 import pg from "pg";
 import { pathToFileURL } from "node:url";
 export async function deliver(pool: pg.Pool) {
@@ -72,14 +73,25 @@ if (
     process.on(signal, () => {
       stopped = true;
     });
+  let nextCleanup = 0;
   while (!stopped) {
-    try {
-      await deliver(pool);
-      await deliverDiscovery(pool);
-      await deliverFixture(pool);
-      await scanPendingArtifact(pool);
-    } catch {
-      console.error("Outbox delivery failed; retrying");
+    for (const job of [
+      deliver,
+      deliverDiscovery,
+      deliverFixture,
+      scanPendingArtifact,
+      reconcileArtifactStorage,
+    ]) {
+      if (stopped) break;
+      if (job === reconcileArtifactStorage) {
+        if (Date.now() < nextCleanup) continue;
+        nextCleanup = Date.now() + 3600000;
+      }
+      try {
+        await job(pool);
+      } catch {
+        console.error(`${job.name} failed; will retry`);
+      }
     }
     await new Promise((r) => setTimeout(r, 1000));
   }

@@ -293,3 +293,26 @@ test("CLI emits a blocked seed report, excludes raw output and refuses to overwr
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("duplicate content within either split cannot count toward case minimums", () => {
+  for (const [first, second, split] of [
+    [0, 1, "development"],
+    [40, 41, "held_out"],
+  ] as const) {
+    const { corpus, manifest, bundle } = evidence();
+    const parsed = JSON.parse(corpus);
+    parsed.cases[second] = {
+      ...parsed.cases[first],
+      id: parsed.cases[second].id,
+    };
+    const changed = JSON.stringify(parsed);
+    manifest.corpus_sha256 = bundle.corpus_sha256 = sha256(changed);
+    const report = evaluate(changed, manifest, bundle);
+    assert.ok(
+      report.blockers.some((b) => b.includes(split + " repeats case content")),
+    );
+    assert.ok(
+      report.blockers.some((b) => b.includes("corpus requires at least")),
+    );
+  }
+});

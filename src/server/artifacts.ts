@@ -182,7 +182,13 @@ export async function installArtifacts(app: FastifyInstance) {
               ? "invalid_type"
               : null;
         const key = rejected ? null : randomUUID();
-        if (key) await storeArtifact(key, bytes);
+        if (key) {
+          await c.query(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1,1))",
+            [key],
+          );
+          await storeArtifact(key, bytes);
+        }
         await c.query(
           "UPDATE artifacts SET state=$3,storage_key=$4,scan_verdict=$5,version=version+1 WHERE workspace_id=$1 AND object_id=$2",
           [w, id, rejected ? "rejected" : "quarantined", key, rejected],

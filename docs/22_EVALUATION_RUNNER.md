@@ -41,8 +41,8 @@ curating later versions; this tool validates one snapshot, not repository histor
 
 The gate requires at least 40 development cases, including ten adversarial and ten
 contradiction/null cases, plus twenty held-out cases. Tuning on held-out cases
-blocks the report. Exact duplicate case content across splits is detected even
-when IDs differ. Semantic near-duplicates, case labels, and actual held-out
+blocks the report. Exact duplicate case content blocks the gate within and across splits, even
+when IDs differ. Only distinct content counts toward the case and tag minimums. Semantic near-duplicates, case labels, and actual held-out
 secrecy still require independent human curation. Do not relabel the existing
 seed or synthetic arithmetic unit-test data as unseen evaluation evidence.
 
