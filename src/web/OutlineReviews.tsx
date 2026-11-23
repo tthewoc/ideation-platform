@@ -69,9 +69,12 @@ export function OutlineReviews({
                   });
                   const packet = await api(`${base}/outline-reviews/${r.id}`);
                   const eligible = packet.outline.items.filter((i: any) =>
-                    ["claim", "alternative_hypothesis", "method"].includes(
-                      i.kind,
-                    ),
+                    [
+                      "claim",
+                      "alternative_hypothesis",
+                      "method",
+                      "task",
+                    ].includes(i.kind),
                   );
                   setPackets((p) => ({
                     ...p,
@@ -130,9 +133,19 @@ export function OutlineReviews({
                       onSubmit={(e) => {
                         e.preventDefault();
                         const f = new FormData(e.currentTarget);
+                        let methodPin;
+                        if (f.has("method_id")) {
+                          const id = String(f.get("method_id")).trim(),
+                            revision = Number(f.get("method_revision"));
+                          f.delete("method_id");
+                          f.delete("method_revision");
+                          methodPin = { id, revision };
+                        }
                         const fields: Record<string, unknown> =
                           Object.fromEntries(f);
+                        if (methodPin) fields.method_ref = methodPin;
                         for (const name of [
+                          "acceptance_criteria",
                           "metrics",
                           "constraints",
                           "ethical_constraints",
@@ -191,7 +204,28 @@ export function OutlineReviews({
                         Candidate title
                         <input name="title" required maxLength={200} />
                       </label>
-                      {packets[r.id].selectedItem.kind === "method" ? (
+                      {packets[r.id].selectedItem.kind === "task" ? (
+                        <fieldset>
+                          <legend>Author-supplied task details</legend>
+                          <label>
+                            Published method ID
+                            <input name="method_id" required />
+                          </label>
+                          <label>
+                            Method revision
+                            <input
+                              type="number"
+                              name="method_revision"
+                              required
+                              min={1}
+                            />
+                          </label>
+                          <label>
+                            Acceptance criteria (one per line)
+                            <textarea name="acceptance_criteria" required />
+                          </label>
+                        </fieldset>
+                      ) : packets[r.id].selectedItem.kind === "method" ? (
                         <fieldset>
                           <legend>Author-supplied method details</legend>
                           {[
@@ -267,7 +301,33 @@ export function OutlineReviews({
                               </p>
                             </>
                           )}
-                          {packets[r.id].preview.type === "method" ? (
+                          {packets[r.id].preview.type === "research_task" ? (
+                            <>
+                              <p>
+                                Reviewed rationale:{" "}
+                                {packets[r.id].preview.content.rationale}
+                              </p>
+                              <p>
+                                Selected method:{" "}
+                                {packets[r.id].preview.content.method_ref.id} ·
+                                r
+                                {
+                                  packets[r.id].preview.content.method_ref
+                                    .revision
+                                }
+                              </p>
+                              <h6>Author-supplied acceptance criteria</h6>
+                              <ul>
+                                {packets[
+                                  r.id
+                                ].preview.content.acceptance_criteria.map(
+                                  (v: string, i: number) => (
+                                    <li key={i}>{v}</li>
+                                  ),
+                                )}
+                              </ul>
+                            </>
+                          ) : packets[r.id].preview.type === "method" ? (
                             <>
                               <h6>Reviewed method steps</h6>
                               <ol>
@@ -312,7 +372,8 @@ export function OutlineReviews({
                             )}
                           </p>
                           <p>
-                            {packets[r.id].preview.type === "method"
+                            {packets[r.id].preview.type === "method" ||
+                            packets[r.id].preview.type === "research_task"
                               ? "Reviewed description"
                               : "Reasoning"}
                             : {packets[r.id].preview.content.body}
@@ -453,10 +514,10 @@ export function OutlineReviews({
                                   ...old[r.id],
                                   saved: old[r.id].saved.map((v: any) => ({
                                     ...v,
-                                    object_id:
-                                      result.published.find(
-                                        (p: any) => p.version === v.version,
-                                      )?.object_id ?? v.object_id,
+                                    ...result.published.find(
+                                      (receipt: any) =>
+                                        receipt.version === v.version,
+                                    ),
                                   })),
                                 },
                               }));
@@ -562,7 +623,8 @@ export function OutlineReviews({
                           </pre>
                           {row.object_id ? (
                             <p>
-                              Published {row.candidate.type} {row.object_id}
+                              Published {row.candidate.type} {row.object_id} · r
+                              {row.revision}
                             </p>
                           ) : (
                             <form
@@ -588,13 +650,14 @@ export function OutlineReviews({
                                           ? {
                                               ...v,
                                               object_id: result.object_id,
+                                              revision: result.revision,
                                             }
                                           : v,
                                       ),
                                     },
                                   }));
                                   setMessage(
-                                    `${row.candidate.type === "method" ? "Method" : row.candidate.type === "hypothesis" ? "Hypothesis" : "Claim"} published to the workspace.`,
+                                    `${row.candidate.type === "research_task" ? "Research task" : row.candidate.type === "method" ? "Method" : row.candidate.type === "hypothesis" ? "Hypothesis" : "Claim"} published to the workspace.`,
                                   );
                                 });
                               }}

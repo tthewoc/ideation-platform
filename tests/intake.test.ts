@@ -880,12 +880,19 @@ async function reviewSetup(includeCandidates = false, withSource = false) {
       text: "Measure baseline",
       steps: ["Measure", "Compare"],
     }),
+    researchTask = outlineItem(first.turn_id, {
+      kind: "task",
+      text: "Measure the baseline",
+      rationale: "Check consistency",
+    }),
     out = await req(
       x.owner,
       "POST",
       `${x.base}/sessions/${x.s.id}/outline`,
       {
-        items: includeCandidates ? [item, alternative, protocol] : [item],
+        items: includeCandidates
+          ? [item, alternative, protocol, researchTask]
+          : [item],
         reason: "Prepare selected source for review",
       },
       second.etag,
@@ -898,6 +905,7 @@ async function reviewSetup(includeCandidates = false, withSource = false) {
     item,
     alternative,
     protocol,
+    researchTask,
     outline: out.json(),
     reviewBody: {
       outline_revision: 1,
@@ -1766,19 +1774,62 @@ test("a published method retains reviewed steps and can be pinned by a research 
   assert.equal(obj.type, "method");
   assert.deepEqual(obj.content, preview.content);
   const method_ref = { id: obj.id, revision: pin.revision };
-  const task = await req(x.peer, "POST", x.base + "/objects", {
-    type: "research_task",
-    schema_version: 1,
-    content: {
-      title: "Apply protocol",
-      body: "Measure baseline",
-      language: "en",
-      source_refs: [],
-      rationale: "Test consistency",
-      method_ref,
-      acceptance_criteria: ["Collect readings"],
+  const taskFields = {
+    title: "Apply protocol",
+    language: "en",
+    item_id: x.researchTask.id,
+    method_ref,
+    acceptance_criteria: ["Collect readings"],
+  };
+  for (const invalid of [
+    { method_ref: { id: randomUUID(), revision: 1 } },
+    { method_ref: preview.content.source_refs[0] },
+    { rationale: "Replaced rationale" },
+    { acceptance_criteria: [] },
+  ]) {
+    const rejected = await req(
+      x.owner,
+      "POST",
+      candidates,
+      { ...taskFields, ...invalid },
+      version,
+    );
+    assert.equal(rejected.statusCode, 422, rejected.body);
+  }
+  const taskPreview = await req(
+    x.owner,
+    "POST",
+    previewPath,
+    taskFields,
+    version,
+  );
+  assert.equal(taskPreview.statusCode, 200, taskPreview.body);
+  assert.deepEqual(taskPreview.json().reviewed_fields, ["body", "rationale"]);
+  assert.equal(taskPreview.json().content.body, x.researchTask.text);
+  assert.equal(taskPreview.json().content.rationale, x.researchTask.rationale);
+  const saved = await req(x.owner, "POST", candidates, taskFields, version);
+  assert.equal(saved.statusCode, 201, saved.body);
+  await admin.query("SELECT refresh_freshness($1)", [x.w]);
+  const publishedTask = await req(
+    x.owner,
+    "POST",
+    candidates + "/publish",
+    {
+      version: saved.json().version,
+      audience: "workspace",
+      confirmation: true,
     },
-  });
-  assert.equal(task.statusCode, 201, task.body);
-  assert.deepEqual(task.json().content.method_ref, method_ref);
+    version,
+  );
+  assert.equal(publishedTask.statusCode, 201, publishedTask.body);
+  const task = (
+    await req(
+      x.peer,
+      "GET",
+      x.base + "/objects/" + publishedTask.json().object_id,
+    )
+  ).json();
+  assert.equal(task.type, "research_task");
+  assert.deepEqual(task.content, taskPreview.json().content);
+  assert.deepEqual(task.content.method_ref, method_ref);
 });

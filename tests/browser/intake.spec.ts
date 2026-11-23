@@ -471,6 +471,61 @@ test("private partial notes preserve wording, undo branches without deletion and
     await expect(authorReviews.getByRole("log")).toContainText(
       "Method published to the workspace",
     );
+    const receipt = await authorReviews
+      .getByText(/^Published method /)
+      .innerText();
+    const match = receipt.match(/Published method ([\w-]+) · r(\d+)/);
+    expect(match).toBeTruthy();
+    await authorReviews.getByLabel("Reviewed outline item").selectOption({
+      label: "task · Measure the baseline before changing the conditions",
+    });
+    await authorReviews
+      .getByLabel("Candidate title")
+      .fill("Baseline measurement task");
+    await authorReviews.getByLabel("Published method ID").fill(match![1]);
+    await authorReviews
+      .getByLabel("Method revision", { exact: true })
+      .fill(match![2]);
+    await authorReviews
+      .getByLabel("Acceptance criteria (one per line)")
+      .fill("Record a baseline reading");
+    await authorReviews
+      .getByRole("button", { name: "Preview registry candidate" })
+      .click();
+    await expect(preview).toContainText(
+      "A baseline is needed to compare the tentative explanation",
+    );
+    await expect(preview).toContainText("Record a baseline reading");
+    await authorReviews
+      .getByRole("button", { name: "Save preview as private candidate" })
+      .click();
+    await expect(authorReviews.getByRole("log")).toContainText(
+      "version 5 saved",
+    );
+    await loadSaved.click();
+    await authorReviews
+      .getByText("Version 5 · Baseline measurement task", { exact: true })
+      .click();
+    await authorReviews
+      .getByRole("checkbox", { name: /Share the candidate content/ })
+      .check();
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get(
+            `/v1/workspaces/${w}/objects/${match![1]}`,
+          );
+          return (await response.json()).freshness;
+        },
+        { timeout: 30000 },
+      )
+      .toBe("current");
+    await authorReviews
+      .getByRole("button", { name: "Publish candidate version 5" })
+      .click();
+    await expect(authorReviews.getByRole("log")).toContainText(
+      "Research task published to the workspace",
+    );
     await authorReviews
       .getByLabel("Reason for revoking outline access")
       .fill("Close this limited review audience");

@@ -11,7 +11,15 @@ import {
   etag,
 } from "./api.js";
 import { transaction, fail, missing } from "./db.js";
-import { claim, hypothesis, method, uuid, reason, type Ref } from "./schema.js";
+import {
+  claim,
+  hypothesis,
+  method,
+  task,
+  uuid,
+  reason,
+  type Ref,
+} from "./schema.js";
 import {
   edgeInput,
   insertEdge,
@@ -19,7 +27,32 @@ import {
   validateReferences,
   requireFreshInputs,
 } from "./graph-core.js";
-const candidateSchemas = { claim, hypothesis, method };
+const candidateSchemas = { claim, hypothesis, method, research_task: task };
+const outlineCandidateTypes = {
+  claim: "claim",
+  alternative_hypothesis: "hypothesis",
+  method: "method",
+  task: "research_task",
+} as const;
+const commonCandidateFields = z.object({
+  item_id: uuid,
+  title: claim.shape.title,
+  language: claim.shape.language.trim().min(2),
+});
+const claimFields = commonCandidateFields.extend({ scope: claim.shape.scope });
+const candidateAuthorSchemas = {
+  claim: claimFields,
+  hypothesis: claimFields.extend(
+    hypothesis.pick({ prediction: true, falsification_criteria: true }).shape,
+  ),
+  method: commonCandidateFields.extend(
+    method.pick({ metrics: true, constraints: true, ethical_constraints: true })
+      .shape,
+  ),
+  research_task: commonCandidateFields.extend(
+    task.pick({ method_ref: true, acceptance_criteria: true }).shape,
+  ),
+};
 const columns =
   "id,outline_revision,author_id,reviewer_id,state,version,expires_at,created_at,(expires_at<=clock_timestamp()) AS expired";
 async function request(c: PoolClient, w: string, id: string) {
@@ -174,15 +207,16 @@ export async function installIntakeReview(app: FastifyInstance) {
         "Select an accepted review with an active grant",
       );
     const item = packet.outline.items.find(
-      (entry: { id: string; kind: string }) =>
-        entry.id === item_id &&
-        ["claim", "alternative_hypothesis", "method"].includes(entry.kind),
+      (entry: { id: string }) => entry.id === item_id,
     );
-    if (!item)
+    const kind = z
+      .enum(["claim", "alternative_hypothesis", "method", "task"])
+      .safeParse(item?.kind);
+    if (!kind.success)
       fail(
         422,
         "invalid_claim_item",
-        "Choose a claim, alternative hypothesis or method from the reviewed revision",
+        "Choose a claim, alternative hypothesis, method or task from the reviewed revision",
       );
     const pins = new Map<string, Ref>();
     for (const turn of packet.source_turns) {
@@ -190,52 +224,30 @@ export async function installIntakeReview(app: FastifyInstance) {
         for (const ref of turn.attachment_refs)
           pins.set(ref.id + ":" + ref.revision, ref);
     }
-    const type =
-      item.kind === "method"
-        ? "method"
-        : item.kind === "alternative_hypothesis"
-          ? "hypothesis"
-          : "claim";
-    const common = z.object({
-      item_id: uuid,
-      title: claim.shape.title,
-      language: claim.shape.language.trim().min(2),
-    });
-    const claimFields = common.extend({ scope: claim.shape.scope });
-    const schema =
-      type === "method"
-        ? common.extend(
-            method.pick({
-              metrics: true,
-              constraints: true,
-              ethical_constraints: true,
-            }).shape,
-          )
-        : type === "hypothesis"
-          ? claimFields.extend(
-              hypothesis.pick({
-                prediction: true,
-                falsification_criteria: true,
-              }).shape,
-            )
-          : claimFields;
-    const { item_id: _, ...authorFields } = schema.strict().parse(req.body);
+    const type = outlineCandidateTypes[kind.data];
+    const { item_id: _, ...authorFields } = candidateAuthorSchemas[type]
+      .strict()
+      .parse(req.body);
     const reviewed =
-      type === "method"
-        ? {
-            body: [item.text, item.rationale].filter(Boolean).join("\n\n"),
-            ordered_steps: item.steps,
-          }
-        : {
-            body: item.rationale,
-            proposition: item.text,
-            qualifiers: [item.basis],
-          };
+      type === "research_task"
+        ? { body: item.text, rationale: item.rationale }
+        : type === "method"
+          ? {
+              body: [item.text, item.rationale].filter(Boolean).join("\n\n"),
+              ordered_steps: item.steps,
+            }
+          : {
+              body: item.rationale,
+              proposition: item.text,
+              qualifiers: [item.basis],
+            };
     const content = candidateSchemas[type].parse({
       ...authorFields,
       ...reviewed,
       source_refs: [...pins.values()],
     });
+    if (type === "research_task")
+      await validateReferences(c, w, type, content, true);
     return {
       type,
       schema_version: 1,
@@ -346,7 +358,7 @@ export async function installIntakeReview(app: FastifyInstance) {
             "This candidate version has already been published",
           );
         const type = z
-          .enum(["claim", "hypothesis", "method"])
+          .enum(["claim", "hypothesis", "method", "research_task"])
           .parse(saved.candidate.type);
         const body = candidateSchemas[type].parse(saved.candidate.content);
         await validateReferences(c, w, type, body, true);
@@ -434,7 +446,7 @@ export async function installIntakeReview(app: FastifyInstance) {
       return {
         items: (
           await c.query(
-            "SELECT c.version,c.candidate,p.object_id FROM outline_claim_candidates c LEFT JOIN outline_claim_publications p USING(workspace_id,review_id,version) WHERE c.workspace_id=$1 AND c.review_id=$2 ORDER BY c.version DESC",
+            "SELECT c.version,c.candidate,p.object_id,p.revision FROM outline_claim_candidates c LEFT JOIN outline_claim_publications p USING(workspace_id,review_id,version) WHERE c.workspace_id=$1 AND c.review_id=$2 ORDER BY c.version DESC",
             [w, id],
           )
         ).rows,
