@@ -143,6 +143,11 @@ export function OutlineReviews({
                         }
                         const fields: Record<string, unknown> =
                           Object.fromEntries(f);
+                        if (fields.method_candidate_version)
+                          fields.method_candidate_version = Number(
+                            fields.method_candidate_version,
+                          );
+                        else delete fields.method_candidate_version;
                         if (methodPin) fields.method_ref = methodPin;
                         for (const name of [
                           "acceptance_criteria",
@@ -208,18 +213,57 @@ export function OutlineReviews({
                         <fieldset>
                           <legend>Author-supplied task details</legend>
                           <label>
-                            Published method ID
-                            <input name="method_id" required />
+                            Method to use
+                            <select
+                              name="method_candidate_version"
+                              value={packets[r.id].methodVersion ?? ""}
+                              onChange={(e) => {
+                                const methodVersion = e.currentTarget.value;
+                                setPackets((old) => ({
+                                  ...old,
+                                  [r.id]: {
+                                    ...old[r.id],
+                                    methodVersion,
+                                    preview: null,
+                                  },
+                                }));
+                              }}
+                            >
+                              <option value="">
+                                Published method revision
+                              </option>
+                              {packets[r.id].saved
+                                ?.filter(
+                                  (v: any) =>
+                                    v.candidate.type === "method" &&
+                                    !v.object_id,
+                                )
+                                .map((v: any) => (
+                                  <option key={v.version} value={v.version}>
+                                    Saved method {v.version} ·{" "}
+                                    {v.candidate.content.title}
+                                  </option>
+                                ))}
+                            </select>
                           </label>
-                          <label>
-                            Method revision
-                            <input
-                              type="number"
-                              name="method_revision"
-                              required
-                              min={1}
-                            />
-                          </label>
+                          {!packets[r.id].methodVersion && (
+                            <>
+                              {" "}
+                              <label>
+                                Published method ID
+                                <input name="method_id" required />
+                              </label>
+                              <label>
+                                Method revision
+                                <input
+                                  type="number"
+                                  name="method_revision"
+                                  required
+                                  min={1}
+                                />
+                              </label>
+                            </>
+                          )}
                           <label>
                             Acceptance criteria (one per line)
                             <textarea name="acceptance_criteria" required />
@@ -307,15 +351,26 @@ export function OutlineReviews({
                                 Reviewed rationale:{" "}
                                 {packets[r.id].preview.content.rationale}
                               </p>
-                              <p>
-                                Selected method:{" "}
-                                {packets[r.id].preview.content.method_ref.id} ·
-                                r
-                                {
-                                  packets[r.id].preview.content.method_ref
-                                    .revision
-                                }
-                              </p>
+                              {packets[r.id].preview.content
+                                .method_candidate_version ? (
+                                <p>
+                                  Method to publish in this batch: saved version{" "}
+                                  {
+                                    packets[r.id].preview.content
+                                      .method_candidate_version
+                                  }
+                                </p>
+                              ) : (
+                                <p>
+                                  Selected method:{" "}
+                                  {packets[r.id].preview.content.method_ref.id}{" "}
+                                  · r
+                                  {
+                                    packets[r.id].preview.content.method_ref
+                                      .revision
+                                  }
+                                </p>
+                              )}
                               <h6>Author-supplied acceptance criteria</h6>
                               <ul>
                                 {packets[
@@ -444,7 +499,16 @@ export function OutlineReviews({
                             );
                             setPackets((old) => ({
                               ...old,
-                              [r.id]: { ...old[r.id], saved: result.items },
+                              [r.id]: {
+                                ...old[r.id],
+                                saved: result.items,
+                                ...(old[r.id].methodVersion &&
+                                  !result.items.some(
+                                    (v: any) =>
+                                      String(v.version) ===
+                                        old[r.id].methodVersion && !v.object_id,
+                                  ) && { methodVersion: "", preview: null }),
+                              },
                             }));
                           })
                         }
@@ -473,6 +537,23 @@ export function OutlineReviews({
                               .map(Number);
                             if (!versions.length) {
                               setError("Select a candidate to publish.");
+                              return;
+                            }
+                            if (
+                              packets[r.id].saved.some(
+                                (v: any) =>
+                                  versions.includes(v.version) &&
+                                  v.candidate.content
+                                    .method_candidate_version &&
+                                  !versions.includes(
+                                    v.candidate.content
+                                      .method_candidate_version,
+                                  ),
+                              )
+                            ) {
+                              setError(
+                                "Select the saved method used by each task in this batch.",
+                              );
                               return;
                             }
                             const relationship = data.get("relationshipType")
@@ -534,6 +615,11 @@ export function OutlineReviews({
                                 ...old,
                                 [r.id]: {
                                   ...old[r.id],
+                                  ...(result.published.some(
+                                    (v: any) =>
+                                      String(v.version) ===
+                                      old[r.id].methodVersion,
+                                  ) && { methodVersion: "", preview: null }),
                                   saved: old[r.id].saved.map((v: any) => ({
                                     ...v,
                                     ...result.published.find(
@@ -651,6 +737,11 @@ export function OutlineReviews({
                               Published {row.candidate.type} {row.object_id} · r
                               {row.revision}
                             </p>
+                          ) : row.candidate.content.method_candidate_version ? (
+                            <p>
+                              Publish together with saved method version{" "}
+                              {row.candidate.content.method_candidate_version}.
+                            </p>
                           ) : (
                             <form
                               onSubmit={(e) => {
@@ -670,6 +761,11 @@ export function OutlineReviews({
                                     ...old,
                                     [r.id]: {
                                       ...old[r.id],
+                                      ...(String(row.version) ===
+                                        old[r.id].methodVersion && {
+                                        methodVersion: "",
+                                        preview: null,
+                                      }),
                                       saved: old[r.id].saved.map((v: any) =>
                                         v.version === row.version
                                           ? {

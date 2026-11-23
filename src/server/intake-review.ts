@@ -40,6 +40,14 @@ const commonCandidateFields = z.object({
   language: claim.shape.language.trim().min(2),
 });
 const claimFields = commonCandidateFields.extend({ scope: claim.shape.scope });
+const localMethodVersion = z.number().int().min(1).max(50);
+const batchTask = task
+  .omit({ method_ref: true })
+  .extend({ method_candidate_version: localMethodVersion });
+const batchTaskFields = commonCandidateFields.extend(
+  batchTask.pick({ acceptance_criteria: true, method_candidate_version: true })
+    .shape,
+);
 const candidateAuthorSchemas = {
   claim: claimFields,
   hypothesis: claimFields.extend(
@@ -225,7 +233,12 @@ export async function installIntakeReview(app: FastifyInstance) {
           pins.set(ref.id + ":" + ref.revision, ref);
     }
     const type = outlineCandidateTypes[kind.data];
-    const { item_id: _, ...authorFields } = candidateAuthorSchemas[type]
+    const usesLocalMethod =
+      type === "research_task" &&
+      Object.hasOwn(req.body as object, "method_candidate_version");
+    const { item_id: _, ...authorFields } = (
+      usesLocalMethod ? batchTaskFields : candidateAuthorSchemas[type]
+    )
       .strict()
       .parse(req.body);
     const reviewed =
@@ -241,12 +254,25 @@ export async function installIntakeReview(app: FastifyInstance) {
               proposition: item.text,
               qualifiers: [item.basis],
             };
-    const content = candidateSchemas[type].parse({
+    const content = (
+      usesLocalMethod ? batchTask : candidateSchemas[type]
+    ).parse({
       ...authorFields,
       ...reviewed,
       source_refs: [...pins.values()],
     });
-    if (type === "research_task")
+    if ("method_candidate_version" in content) {
+      const available = await c.query(
+        "SELECT 1 FROM outline_claim_candidates c WHERE c.workspace_id=$1 AND c.review_id=$2 AND c.version=$3 AND c.candidate->>'type'='method' AND NOT EXISTS (SELECT 1 FROM outline_claim_publications p WHERE p.review_id=c.review_id AND p.version=c.version)",
+        [w, id, content.method_candidate_version],
+      );
+      if (!available.rowCount)
+        fail(
+          422,
+          "invalid_method_candidate",
+          "Choose an unpublished method candidate from this review.",
+        );
+    } else if (type === "research_task")
       await validateReferences(c, w, type, content, true);
     return {
       type,
@@ -341,7 +367,8 @@ export async function installIntakeReview(app: FastifyInstance) {
           "Only the author may publish this candidate",
         );
       const prepared = [];
-      for (const version of "versions" in b ? b.versions : [b.version]) {
+      const versions = "versions" in b ? b.versions : [b.version];
+      for (const version of versions) {
         const saved =
           (
             await c.query(
@@ -365,13 +392,38 @@ export async function installIntakeReview(app: FastifyInstance) {
         const type = z
           .enum(["claim", "hypothesis", "method", "research_task"])
           .parse(saved.candidate.type);
-        const body = candidateSchemas[type].parse(saved.candidate.content);
-        await validateReferences(c, w, type, body, true);
+        const usesLocalMethod =
+          type === "research_task" &&
+          Object.hasOwn(saved.candidate.content, "method_candidate_version");
+        const body = (
+          usesLocalMethod ? batchTask : candidateSchemas[type]
+        ).parse(saved.candidate.content);
+        if (!("method_candidate_version" in body))
+          await validateReferences(c, w, type, body, true);
         await requireFreshInputs(c, w, body);
         prepared.push({ version, type, body });
       }
-      const published = [];
-      for (const { version, type, body } of prepared) {
+      const methodPins = new Map<number, Ref>();
+      const receipts = new Map<
+        number,
+        { version: number; object_id: string; revision: number }
+      >();
+      // Publish dependencies first, retaining caller order in the receipt.
+      for (const { version, type, body: candidate } of prepared.sort(
+        (a, b) => Number(a.type !== "method") - Number(b.type !== "method"),
+      )) {
+        let body;
+        if ("method_candidate_version" in candidate) {
+          const { method_candidate_version, ...fields } = candidate;
+          const method_ref = methodPins.get(method_candidate_version);
+          if (!method_ref)
+            fail(
+              422,
+              "invalid_method_candidate",
+              "Include the task's saved method in this batch.",
+            );
+          body = task.parse({ ...fields, method_ref });
+        } else body = candidate;
         const obj = (
           await c.query(
             "INSERT INTO objects(workspace_id,type,author_id) VALUES($1,$2,actor()) RETURNING *",
@@ -400,8 +452,11 @@ export async function installIntakeReview(app: FastifyInstance) {
           [id, version, w, obj.id, revision],
         );
         await audit(c, req, w, "object.published", obj.id, revision);
-        published.push({ version, object_id: obj.id, revision });
+        if (type === "method")
+          methodPins.set(version, { id: obj.id, revision });
+        receipts.set(version, { version, object_id: obj.id, revision });
       }
+      const published = versions.map((v) => receipts.get(v)!);
       if ("versions" in b && b.relationship) {
         const link = b.relationship;
         const from = published.find((v) => v.version === link.from_version);

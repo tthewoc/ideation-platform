@@ -173,7 +173,7 @@ export function content(type: string, value: unknown) {
   return schemas[objectType.parse(type)].parse(value);
 }
 export type Content = ReturnType<typeof content>;
-export function references(body: Content): Ref[] {
+export function references(body: Pick<Content, "source_refs">): Ref[] {
   const refs: Ref[] = [...body.source_refs];
   for (const key of ["claim_ref", "evidence_ref", "method_ref"] as const)
     if (key in body) refs.push((body as any)[key]);

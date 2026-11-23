@@ -371,7 +371,9 @@ test("private partial notes preserve wording, undo branches without deletion and
       await authorReviews
         .getByRole("button", { name: "Preview registry candidate" })
         .click();
-      await expect(preview.getByRole("heading")).toHaveText(title);
+      await expect(preview.getByRole("heading", { level: 5 })).toHaveText(
+        title,
+      );
       if (version === 3)
         await expect(preview).toContainText(
           "Author-supplied falsification criteria: The baseline remains constant",
@@ -381,6 +383,7 @@ test("private partial notes preserve wording, undo branches without deletion and
         .click();
       await expect(authorReviews.getByRole("log")).toContainText(
         `version ${version} saved`,
+        { timeout: 70_000 },
       );
     }
     const loadSaved = authorReviews.getByRole("button", {
@@ -534,6 +537,86 @@ test("private partial notes preserve wording, undo branches without deletion and
       .click();
     await expect(authorReviews.getByRole("log")).toContainText(
       "Research task published to the workspace",
+    );
+    // This extended workflow can exhaust the per-member write quota.
+    test.setTimeout(120_000);
+    await page.route("**/outline-reviews/**", async (route) => {
+      let response = await route.fetch();
+      if (response.status() === 429) {
+        const seconds = Number(response.headers()["retry-after"] ?? 60);
+        await new Promise((resolve) =>
+          setTimeout(resolve, (seconds + 1) * 1000),
+        );
+        response = await route.fetch();
+      }
+      await route.fulfill({ response });
+    });
+    const selectItem = authorReviews.getByLabel("Reviewed outline item");
+    const previewAndSave = async (title: string, version: number) => {
+      await authorReviews.getByLabel("Candidate title").fill(title);
+      await authorReviews
+        .getByRole("button", { name: "Preview registry candidate" })
+        .click();
+      await expect(preview.getByRole("heading", { level: 5 })).toHaveText(
+        title,
+      );
+      await authorReviews
+        .getByRole("button", { name: "Save preview as private candidate" })
+        .click();
+      await expect(authorReviews.getByRole("log")).toContainText(
+        `version ${version} saved`,
+        { timeout: 70_000 },
+      );
+    };
+    await selectItem.selectOption({
+      label: "method · Compare baseline readings",
+    });
+    await authorReviews
+      .getByLabel("Metrics (one per line)", { exact: true })
+      .fill("Temperature");
+    await previewAndSave("Replication method", 6);
+    await loadSaved.click();
+    await selectItem.selectOption({
+      label: "task · Measure the baseline before changing the conditions",
+    });
+    await authorReviews.getByLabel("Method to use").selectOption("6");
+    await authorReviews
+      .getByLabel("Acceptance criteria (one per line)")
+      .fill("Collect repeat readings");
+    await previewAndSave("Replication task", 7);
+    await expect(preview).toContainText("saved version 6");
+    await selectItem.selectOption({
+      label:
+        "alternative hypothesis · Ambient conditions explain the difference",
+    });
+    await authorReviews.getByLabel("Candidate scope").fill("Replication");
+    await authorReviews
+      .getByLabel("Prediction", { exact: true })
+      .fill("Temperature changes the readings");
+    await authorReviews
+      .getByLabel("Falsification criteria", { exact: true })
+      .fill("Readings remain constant");
+    await previewAndSave("Replication hypothesis", 8);
+    await loadSaved.click();
+    for (const label of [
+      "Version 6 · Replication method",
+      "Version 7 · Replication task",
+      "Version 8 · Replication hypothesis",
+    ]) {
+      await batch.getByRole("checkbox", { name: label, exact: true }).check();
+    }
+    await batch.getByLabel("Relationship type").selectOption("tests");
+    await batch.getByLabel("From candidate").selectOption("7");
+    await batch.getByLabel("To candidate").selectOption("8");
+    await batch
+      .getByLabel("Relationship rationale")
+      .fill("Compare the repeat readings with the prediction.");
+    await consent.check();
+    await batch
+      .getByRole("button", { name: "Publish selected candidates" })
+      .click();
+    await expect(authorReviews.getByRole("log")).toContainText(
+      "Published 3 candidates to the workspace. Published relationship",
     );
     await authorReviews
       .getByLabel("Reason for revoking outline access")

@@ -111,7 +111,7 @@ export async function freshness(c: PoolClient, w: string, r: Ref) {
 export async function requireFreshInputs(
   c: PoolClient,
   w: string,
-  body: Content,
+  body: Pick<Content, "source_refs">,
 ) {
   for (const r of references(body)) {
     const p = await pinned(c, w, r);

@@ -1887,4 +1887,113 @@ test("a published method retains reviewed steps and can be pinned by a research 
   assert.equal(task.type, "research_task");
   assert.deepEqual(task.content, taskPreview.json().content);
   assert.deepEqual(task.content.method_ref, method_ref);
+  const newMethod = await req(x.owner, "POST", candidates, fields, version);
+  assert.equal(newMethod.statusCode, 201, newMethod.body);
+  const methodVersion = newMethod.json().version;
+  const { method_ref: existingPin, ...taskInput } = taskFields;
+  const localTask = { ...taskInput, method_candidate_version: methodVersion };
+  for (const invalid of [
+    { ...localTask, method_ref: existingPin },
+    { ...localTask, method_candidate_version: to_version },
+  ]) {
+    assert.equal(
+      (await req(x.owner, "POST", candidates, invalid, version)).statusCode,
+      422,
+    );
+  }
+  const newTask = await req(x.owner, "POST", candidates, localTask, version);
+  assert.equal(newTask.statusCode, 201, newTask.body);
+  const taskVersion = newTask.json().version;
+  const newHyp = await req(
+    x.owner,
+    "POST",
+    candidates,
+    {
+      title: "Replication hypothesis",
+      language: "en",
+      item_id: x.alternative.id,
+      scope: "Trial",
+      prediction: "Baseline is stable",
+      falsification_criteria: "Baseline varies",
+    },
+    version,
+  );
+  assert.equal(newHyp.statusCode, 201, newHyp.body);
+  const hypVersion = newHyp.json().version;
+  const together = {
+    ...batch,
+    versions: [taskVersion, hypVersion, methodVersion],
+    relationship: {
+      ...relationship,
+      from_version: taskVersion,
+      to_version: hypVersion,
+    },
+  };
+  await admin.query("SELECT refresh_freshness($1)", [x.w]);
+  const registryCounts = async () =>
+    (
+      await admin.query(
+        "SELECT (SELECT count(*) FROM objects WHERE workspace_id=$1) objects,(SELECT count(*) FROM edges WHERE workspace_id=$1) edges",
+        [x.w],
+      )
+    ).rows[0];
+  const before = await registryCounts();
+  for (const invalid of [
+    { ...together, versions: [taskVersion, hypVersion] },
+    {
+      ...together,
+      relationship: { ...together.relationship, to_version: methodVersion },
+    },
+  ]) {
+    const rejected = await req(
+      x.owner,
+      "POST",
+      candidates + "/publish",
+      invalid,
+      version,
+    );
+    assert.equal(rejected.statusCode, 422, rejected.body);
+    assert.deepEqual(await registryCounts(), before);
+    const history = (await req(x.owner, "GET", candidates)).json().items;
+    assert.ok(
+      history
+        .filter((v: any) => together.versions.includes(v.version))
+        .every((v: any) => !v.object_id),
+    );
+  }
+  const receipt = await req(
+    x.owner,
+    "POST",
+    candidates + "/publish",
+    together,
+    version,
+  );
+  assert.equal(receipt.statusCode, 201, receipt.body);
+  const graph = receipt.json();
+  assert.deepEqual(
+    graph.published.map((v: any) => v.version),
+    together.versions,
+  );
+  const [t, h, m] = graph.published;
+  const visible = (
+    await req(x.peer, "GET", x.base + "/objects/" + t.object_id)
+  ).json();
+  assert.deepEqual(visible.content.method_ref, {
+    id: m.object_id,
+    revision: m.revision,
+  });
+  assert.equal(visible.content.method_candidate_version, undefined);
+  const endpoints = await admin.query(
+    "SELECT type,from_id,from_revision,to_id,to_revision FROM edge_revisions WHERE workspace_id=$1 AND edge_id=$2 AND revision=$3",
+    [x.w, graph.relationship.id, graph.relationship.revision],
+  );
+  assert.deepEqual(endpoints.rows, [
+    {
+      type: "tests",
+      from_id: t.object_id,
+      from_revision: t.revision,
+      to_id: h.object_id,
+      to_revision: h.revision,
+    },
+  ]);
 });
