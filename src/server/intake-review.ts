@@ -311,7 +311,12 @@ export async function installIntakeReview(app: FastifyInstance) {
               .extend({
                 relationship: z
                   .object({
-                    type: z.enum(["cites", "derived_from", "relevant_to"]),
+                    type: z.enum([
+                      "cites",
+                      "derived_from",
+                      "relevant_to",
+                      "tests",
+                    ]),
                     from_version: versionSchema,
                     to_version: versionSchema,
                     rationale: reason,

@@ -1810,24 +1810,79 @@ test("a published method retains reviewed steps and can be pinned by a research 
   const saved = await req(x.owner, "POST", candidates, taskFields, version);
   assert.equal(saved.statusCode, 201, saved.body);
   await admin.query("SELECT refresh_freshness($1)", [x.w]);
-  const publishedTask = await req(
+  const hypothesis = await req(
+    x.owner,
+    "POST",
+    candidates,
+    {
+      title: "Baseline hypothesis",
+      language: "en",
+      item_id: x.alternative.id,
+      scope: "Reviewed measurements",
+      prediction: "Baseline remains stable",
+      falsification_criteria: "Baseline varies",
+    },
+    version,
+  );
+  assert.equal(hypothesis.statusCode, 201, hypothesis.body);
+  const from_version = saved.json().version,
+    to_version = hypothesis.json().version;
+  const relationship = {
+    type: "tests",
+    from_version,
+    to_version,
+    rationale: "Compare measured readings with the predicted baseline.",
+  };
+  const batch = {
+    versions: [from_version, to_version],
+    audience: "workspace",
+    confirmation: true,
+    relationship,
+  };
+  const reversed = await req(
     x.owner,
     "POST",
     candidates + "/publish",
     {
-      version: saved.json().version,
-      audience: "workspace",
-      confirmation: true,
+      ...batch,
+      relationship: {
+        ...relationship,
+        from_version: to_version,
+        to_version: from_version,
+      },
     },
     version,
   );
+  assert.equal(reversed.statusCode, 422, reversed.body);
+  assert.equal(reversed.json().error.code, "invalid_endpoint");
+  const publishedTask = await req(
+    x.owner,
+    "POST",
+    candidates + "/publish",
+    batch,
+    version,
+  );
   assert.equal(publishedTask.statusCode, 201, publishedTask.body);
+  const {
+    published: [source, target],
+    relationship: edge,
+  } = publishedTask.json();
+  const row = await admin.query(
+    "SELECT type,from_id,from_revision,to_id,to_revision,rationale FROM edge_revisions WHERE workspace_id=$1 AND edge_id=$2 AND revision=$3",
+    [x.w, edge.id, edge.revision],
+  );
+  assert.deepEqual(row.rows, [
+    {
+      type: "tests",
+      from_id: source.object_id,
+      from_revision: source.revision,
+      to_id: target.object_id,
+      to_revision: target.revision,
+      rationale: relationship.rationale,
+    },
+  ]);
   const task = (
-    await req(
-      x.peer,
-      "GET",
-      x.base + "/objects/" + publishedTask.json().object_id,
-    )
+    await req(x.peer, "GET", x.base + "/objects/" + source.object_id)
   ).json();
   assert.equal(task.type, "research_task");
   assert.deepEqual(task.content, taskPreview.json().content);

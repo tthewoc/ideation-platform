@@ -405,13 +405,22 @@ test("private partial notes preserve wording, undo branches without deletion and
       })
       .check();
     await expect(consent).not.toBeChecked();
-    await batch.getByLabel("Relationship type").selectOption("cites");
+    await batch.getByLabel("Relationship type").selectOption("tests");
     await batch.getByLabel("From candidate").selectOption("3");
     await batch.getByLabel("To candidate").selectOption("2");
     await consent.check();
     await batch
       .getByLabel("Relationship rationale")
       .fill("Extended baseline cites the narrow baseline.");
+    await expect(consent).not.toBeChecked();
+    await consent.check();
+    await batch
+      .getByRole("button", { name: "Publish selected candidates" })
+      .click();
+    await expect(authorReviews.getByRole("alert")).toContainText(
+      "Choose a method or research task as the source",
+    );
+    await batch.getByLabel("Relationship type").selectOption("cites");
     await expect(consent).not.toBeChecked();
     await consent.check();
     await batch

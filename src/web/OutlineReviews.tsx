@@ -496,6 +496,28 @@ export function OutlineReviews({
                               );
                               return;
                             }
+                            if (relationship?.type === "tests") {
+                              const saved = packets[r.id].saved;
+                              const from = saved.find(
+                                (v: any) =>
+                                  v.version === relationship.from_version,
+                              );
+                              const to = saved.find(
+                                (v: any) =>
+                                  v.version === relationship.to_version,
+                              );
+                              if (
+                                !["method", "research_task"].includes(
+                                  from?.candidate.type,
+                                ) ||
+                                to?.candidate.type !== "hypothesis"
+                              ) {
+                                setError(
+                                  "Choose a method or research task as the source and a hypothesis as the target.",
+                                );
+                                return;
+                              }
+                            }
                             run(async () => {
                               const result = await api(
                                 `${base}/outline-reviews/${r.id}/claim-candidates/publish`,
@@ -563,6 +585,9 @@ export function OutlineReviews({
                                 Relationship type
                                 <select name="relationshipType" defaultValue="">
                                   <option value="">No relationship</option>
+                                  <option value="tests">
+                                    Tests (method or research task → hypothesis)
+                                  </option>
                                   <option value="cites">Cites</option>
                                   <option value="derived_from">
                                     Derived from
