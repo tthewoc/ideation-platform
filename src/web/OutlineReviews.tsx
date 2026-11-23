@@ -615,6 +615,15 @@ export function OutlineReviews({
                                 ...old,
                                 [r.id]: {
                                   ...old[r.id],
+                                  batchReceipt: {
+                                    published: result.published,
+                                    relationship: result.relationship
+                                      ? {
+                                          ...relationship,
+                                          ...result.relationship,
+                                        }
+                                      : undefined,
+                                  },
                                   ...(result.published.some(
                                     (v: any) =>
                                       String(v.version) ===
@@ -722,6 +731,54 @@ export function OutlineReviews({
                             <button>Publish selected candidates</button>
                           </fieldset>
                         </form>
+                      )}
+                      {packets[r.id].batchReceipt && (
+                        <section aria-label="Latest batch publication receipt">
+                          <h5>Latest batch publication receipt</h5>
+                          <ol>
+                            {packets[r.id].batchReceipt.published.map(
+                              (entry: {
+                                version: number;
+                                object_id: string;
+                                revision: number;
+                              }) => (
+                                <li key={entry.version}>
+                                  Version {entry.version} ·{" "}
+                                  {
+                                    packets[r.id].saved.find(
+                                      (row: any) =>
+                                        row.version === entry.version,
+                                    )?.candidate.content.title
+                                  }
+                                  {" · "}
+                                  {entry.object_id} · r{entry.revision}
+                                </li>
+                              ),
+                            )}
+                          </ol>
+                          {packets[r.id].batchReceipt.relationship && (
+                            <p>
+                              Version{" "}
+                              {
+                                packets[r.id].batchReceipt.relationship
+                                  .from_version
+                              }{" "}
+                              {packets[r.id].batchReceipt.relationship.type}{" "}
+                              version{" "}
+                              {
+                                packets[r.id].batchReceipt.relationship
+                                  .to_version
+                              }{" "}
+                              · {packets[r.id].batchReceipt.relationship.id} · r
+                              {packets[r.id].batchReceipt.relationship.revision}
+                              {" · "}
+                              {
+                                packets[r.id].batchReceipt.relationship
+                                  .rationale
+                              }
+                            </p>
+                          )}
+                        </section>
                       )}
                       {packets[r.id].saved?.map((row: any) => (
                         <details key={row.version}>

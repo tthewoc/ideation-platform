@@ -618,6 +618,16 @@ test("private partial notes preserve wording, undo branches without deletion and
     await expect(authorReviews.getByRole("log")).toContainText(
       "Published 3 candidates to the workspace. Published relationship",
     );
+    const batchReceipt = authorReviews.getByRole("region", {
+      name: "Latest batch publication receipt",
+    });
+    await expect(batchReceipt.getByRole("listitem")).toHaveCount(3);
+    await expect(batchReceipt).toContainText(
+      /Version 7 · Replication task · [\da-f-]+ · r1/,
+    );
+    await expect(batchReceipt).toContainText(
+      /Version 7 tests version 8 · [\da-f-]+ · r1 · Compare the repeat readings/,
+    );
     await authorReviews
       .getByLabel("Reason for revoking outline access")
       .fill("Close this limited review audience");
