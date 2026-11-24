@@ -1,5 +1,13 @@
 import { useState } from "react";
 import type { Api } from "./StructuredEditor";
+function needsMethodInBatch(row: any, saved: any[]) {
+  const version = row.candidate.content.method_candidate_version;
+  return Boolean(
+    version &&
+    !saved.some((entry) => entry.version === version && entry.object_id),
+  );
+}
+
 export function OutlineReviews({
   base,
   api,
@@ -543,8 +551,7 @@ export function OutlineReviews({
                               packets[r.id].saved.some(
                                 (v: any) =>
                                   versions.includes(v.version) &&
-                                  v.candidate.content
-                                    .method_candidate_version &&
+                                  needsMethodInBatch(v, packets[r.id].saved) &&
                                   !versions.includes(
                                     v.candidate.content
                                       .method_candidate_version,
@@ -794,7 +801,7 @@ export function OutlineReviews({
                               Published {row.candidate.type} {row.object_id} · r
                               {row.revision}
                             </p>
-                          ) : row.candidate.content.method_candidate_version ? (
+                          ) : needsMethodInBatch(row, packets[r.id].saved) ? (
                             <p>
                               Publish together with saved method version{" "}
                               {row.candidate.content.method_candidate_version}.

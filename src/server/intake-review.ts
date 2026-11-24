@@ -395,9 +395,26 @@ export async function installIntakeReview(app: FastifyInstance) {
         const usesLocalMethod =
           type === "research_task" &&
           Object.hasOwn(saved.candidate.content, "method_candidate_version");
-        const body = (
-          usesLocalMethod ? batchTask : candidateSchemas[type]
-        ).parse(saved.candidate.content);
+        let body = (usesLocalMethod ? batchTask : candidateSchemas[type]).parse(
+          saved.candidate.content,
+        );
+        if (
+          "method_candidate_version" in body &&
+          !versions.includes(body.method_candidate_version)
+        ) {
+          const { method_candidate_version, ...fields } = body;
+          const publication = await c.query(
+            "SELECT object_id AS id, revision FROM outline_claim_publications WHERE workspace_id=$1 AND review_id=$2 AND version=$3",
+            [w, id, method_candidate_version],
+          );
+          if (!publication.rowCount)
+            fail(
+              422,
+              "invalid_method_candidate",
+              "Include the task's saved method in this batch.",
+            );
+          body = task.parse({ ...fields, method_ref: publication.rows[0] });
+        }
         if (!("method_candidate_version" in body))
           await validateReferences(c, w, type, body, true);
         await requireFreshInputs(c, w, body);

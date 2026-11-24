@@ -1997,3 +1997,74 @@ test("a published method retains reviewed steps and can be pinned by a research 
     },
   ]);
 });
+
+test("a saved task pins its method when the method was published separately", async () => {
+  const x = await reviewSetup(true, true);
+  const review = await grantReview(x);
+  const path = x.base + "/outline-reviews/" + review.id;
+  const decision = await req(
+    x.peer,
+    "POST",
+    path + "/decisions",
+    {
+      disposition: "accepted",
+      conflict_declaration: "none",
+      reason: "Reviewed the protocol",
+    },
+    review.etag,
+  );
+  const etag = decision.json().etag;
+  const candidates = path + "/claim-candidates";
+  const method = await req(
+    x.owner,
+    "POST",
+    candidates,
+    {
+      item_id: x.protocol.id,
+      title: "Reviewed protocol",
+      language: "en",
+      metrics: ["Temperature"],
+      constraints: [],
+      ethical_constraints: [],
+    },
+    etag,
+  );
+  assert.equal(method.statusCode, 201, method.body);
+  const task = await req(
+    x.owner,
+    "POST",
+    candidates,
+    {
+      item_id: x.researchTask.id,
+      title: "Follow-up trial",
+      language: "en",
+      acceptance_criteria: ["Collect readings"],
+      method_candidate_version: method.json().version,
+    },
+    etag,
+  );
+  assert.equal(task.statusCode, 201, task.body);
+  const publish = (version: number) =>
+    req(
+      x.owner,
+      "POST",
+      candidates + "/publish",
+      { version, audience: "workspace", confirmation: true },
+      etag,
+    );
+  await admin.query("SELECT refresh_freshness($1)", [x.w]);
+  const pin = await publish(method.json().version);
+  assert.equal(pin.statusCode, 201, pin.body);
+  await admin.query("SELECT refresh_freshness($1)", [x.w]);
+  const result = await publish(task.json().version);
+  assert.equal(result.statusCode, 201, result.body);
+  const published = await req(
+    x.peer,
+    "GET",
+    x.base + "/objects/" + result.json().object_id,
+  );
+  assert.deepEqual(published.json().content.method_ref, {
+    id: pin.json().object_id,
+    revision: pin.json().revision,
+  });
+});
