@@ -1,0 +1,11 @@
+{
+  "version": "retrieval-v1",
+  "cutoff": 3,
+  "cases": [
+    {"id":"dev-measurement","split":"development","query":"measurement","root":"result","relevant":["observation"]},
+    {"id":"dev-linked-outcome","split":"development","query":"measurement","root":"observation","relevant":["observation","result"]},
+    {"id":"held-null","split":"held-out","query":"null","root":"observation","relevant":["result"]},
+    {"id":"held-linked-measurement","split":"held-out","query":"null","root":"result","relevant":["result","observation"]},
+    {"id":"held-private","split":"access","query":"obsidian","root":"method","relevant":[]}
+  ]
+}

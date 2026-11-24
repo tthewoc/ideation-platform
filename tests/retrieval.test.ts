@@ -2,6 +2,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, randomBytes } from "node:crypto";
 import pg from "pg";
+import { readFile } from "node:fs/promises";
 import { buildApp } from "../src/server/app.js";
 import { db, authDb, transaction } from "../src/server/db.js";
 import { hash } from "../src/server/auth.js";
@@ -215,6 +216,92 @@ test("graph-assisted retrieval retains direction as evidence and does not infer 
     `${base}/search?channels=graph&root_id=${randomUUID()}`,
   );
   assert.equal(missing.statusCode, 404);
+});
+test("versioned retrieval comparison on the thermal publication corpus", async (t) => {
+  const suite = JSON.parse(
+    await readFile(
+      new URL("../docs/evaluation/retrieval-v1.json", import.meta.url),
+      "utf8",
+    ),
+  ) as {
+    version: string;
+    cutoff: number;
+    cases: {
+      id: string;
+      split: "development" | "held-out" | "access";
+      query: string;
+      root: string;
+      relevant: string[];
+    }[];
+  };
+  const ids: Record<string, string> = {
+    observation: observation.id,
+    result: result.id,
+    method: method.id,
+  };
+  // Use a dedicated reader so evaluation requests have their own search quota.
+  const reader = await user();
+  await admin.query(
+    "INSERT INTO memberships VALUES($1,$2,ARRAY['member'],NULL)",
+    [w, reader.id],
+  );
+  for (const split of ["development", "held-out", "access"]) {
+    const cases = suite.cases.filter((row) => row.split === split);
+    assert.ok(cases.length);
+    for (const channels of ["lexical", "lexical,graph"]) {
+      let recall = 0,
+        reciprocalRank = 0;
+      for (const row of cases) {
+        assert.ok(ids[row.root]);
+        const query = new URLSearchParams({
+          q: row.query,
+          channels,
+          root_id: ids[row.root],
+        });
+        const path = base + "/search?" + query;
+        const response = await req(reader, "GET", path);
+        assert.equal(response.statusCode, 200, response.body);
+        const { items, index_state } = response.json();
+        assert.equal(index_state, "ready");
+        const returned: string[] = items.map((item: { id: string }) => item.id);
+        assert.ok(
+          returned.every((id) => Object.values(ids).includes(id)),
+          row.id + ": unauthorized or unexpected hit",
+        );
+        assert.equal(new Set(returned).size, returned.length);
+        if (split === "access") {
+          assert.deepEqual(returned, []);
+          assert.equal((await req(outsider, "GET", path)).statusCode, 404);
+          continue;
+        }
+        const relevant = row.relevant.map((key) => {
+          assert.ok(ids[key]);
+          return ids[key];
+        });
+        assert.ok(relevant.length);
+        const top = returned.slice(0, suite.cutoff);
+        const rank = top.findIndex((id) => relevant.includes(id));
+        recall +=
+          top.filter((id) => relevant.includes(id)).length / relevant.length;
+        reciprocalRank += rank < 0 ? 0 : 1 / (rank + 1);
+      }
+      t.diagnostic(
+        JSON.stringify({
+          version: suite.version,
+          split,
+          channels,
+          queries: cases.length,
+          cutoff: suite.cutoff,
+          ...(split === "access"
+            ? { accessChecks: "passed" }
+            : {
+                meanRecall: recall / cases.length,
+                meanReciprocalRank: reciprocalRank / cases.length,
+              }),
+        }),
+      );
+    }
+  }
 });
 test("corrections suppress stale indexed text immediately and rebuilding preserves current identity", async () => {
   const draft = await req(

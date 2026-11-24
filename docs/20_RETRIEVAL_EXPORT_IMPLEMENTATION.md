@@ -124,3 +124,30 @@ passed (including the existing graph review journey rerun after making its selec
 exact). The restore drill verified 605 revisions and 16 artifact blobs, projection
 references, embedding fingerprints and runtime RLS. Additional slice 5 preparation
 is documented separately and does not change these into live-AI release results.
+
+## Versioned retrieval evaluation
+
+Run `npm run evaluate:retrieval` after local setup. The suite sends identical
+query text and root IDs through the search API in lexical and lexical-plus-graph
+modes. The thermal fixture has three publications, one relationship and one
+private draft. The [v1 query judgments](evaluation/retrieval-v1.json) name
+objects symbolically so fresh database IDs do not change the expected answers.
+Version the fixture and judgments together when changing the benchmark.
+
+The command prints one JSON diagnostic per split and mode. Recall@3 is the
+fraction of relevant publications in the first three results. Reciprocal rank@3
+is the inverse rank of the first relevant publication, or zero for a miss.
+Both metrics are averaged across queries within a split. Access cases are
+reported separately and fail the run if a private draft appears or an outsider
+can search the workspace.
+
+| Split | Cases | Lexical recall@3 | Lexical + graph recall@3 | MRR@3 (both) |
+|---|---:|---:|---:|---:|
+| Development | 2 | 0.75 | 1.00 | 1.00 |
+| Held-out | 2 | 0.75 | 1.00 | 1.00 |
+
+The graph channel recovered a second relevant publication across the fixture's
+explicit edge. The two held-out scenarios share a query term and exercise
+different starting objects. These synthetic judgments establish a repeatable
+baseline. Release qualification still requires broader independent judgments
+and a comparison that includes the vector channel when available.

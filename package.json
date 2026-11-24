@@ -21,7 +21,8 @@
     "test:restore": "tsx scripts/restore-check.ts",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"scripts/**/*.ts\" \"tests/**/*.ts\" *.ts",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css,html}\" \"scripts/**/*.ts\" \"tests/**/*.ts\" *.ts",
-    "evaluate": "tsx scripts/evaluate.ts"
+    "evaluate": "tsx scripts/evaluate.ts",
+    "evaluate:retrieval": "tsx --test tests/retrieval.test.ts"
   },
   "dependencies": {
     "@fastify/cookie": "11.1.5",
