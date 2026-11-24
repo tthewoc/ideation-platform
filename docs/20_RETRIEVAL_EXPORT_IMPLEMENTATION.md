@@ -151,3 +151,33 @@ explicit edge. The two held-out scenarios share a query term and exercise
 different starting objects. These synthetic judgments establish a repeatable
 baseline. Release qualification still requires broader independent judgments
 and a comparison that includes the vector channel when available.
+
+### Broader instrument-log benchmark (retrieval-v2)
+
+The [review packet](evaluation/retrieval-v2.json) contains nine synthetic
+publications, four links and four search intents. It includes misleading word
+matches and an enclosure link that is relevant to the instrument but may be
+irrelevant to a particular question. Each search mode receives identical text
+and the same starting publication. Run `npm run evaluate:retrieval:v2` after
+local setup to check access before and after membership revocation.
+
+Before inspecting rankings, an independent reviewer should read each intent and
+all nine title/body pairs. Select every publication that answers any substantive
+part of the intent. A word match or graph connection alone is insufficient.
+Save the completed judgments in a JSON file with this structure, replacing the
+empty lists with the selected document keys for each case:
+
+```json
+{
+  "version": "retrieval-v2",
+  "reviewer": "<reviewer identifier>",
+  "relevant": { "temperature": [], "timing": [], "continuity": [], "mount": [] }
+}
+```
+
+Freeze those judgments before running
+`RETRIEVAL_V2_LABELS=path/to/judgments.json npm run evaluate:retrieval:v2`.
+The report names the split, top three hits, recall, reciprocal rank, and relevant
+publications gained or lost for each query. Without judgments the command runs
+the permission check and reports quality evaluation as pending. The separate
+v1 fixture remains the historical baseline.

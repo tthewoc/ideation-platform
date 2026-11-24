@@ -1,0 +1,21 @@
+{
+  "version": "retrieval-v2",
+  "documents": {
+    "offset": ["Probe offset", "In an ice bath the sensor read two degrees above the reference."],
+    "adjustment": ["Reference adjustment", "Subtract the measured bias from each temperature reading."],
+    "invoice": ["Offset invoice", "The purchase ledger offset a shipping charge against a supplier credit."],
+    "drift": ["Clock drift", "Elapsed timestamps diverged over the overnight recording."],
+    "sync": ["Timestamp correction", "Align recorded events to a reference pulse before comparing intervals."],
+    "snow": ["Snow drift", "Wind deposited snow against the enclosure overnight."],
+    "gap": ["Telemetry gap", "The receiver lost samples during a power interruption."],
+    "backup": ["Receiver battery trial", "A backup cell maintained continuous sampling during the outage."],
+    "clearance": ["Mounting gap", "A spacer kept the receiver enclosure clear of the bracket."]
+  },
+  "edges": [["offset","adjustment"],["drift","sync"],["gap","backup"],["gap","clearance"]],
+  "cases": [
+    {"id":"temperature","split":"development","query":"offset","root":"offset","intent":"Identify the probe bias and the adjustment used to compensate for it."},
+    {"id":"timing","split":"held-out","query":"drift","root":"drift","intent":"Explain the timing discrepancy and find a way to align timestamps."},
+    {"id":"continuity","split":"held-out","query":"gap","root":"gap","intent":"Find the cause of lost samples and evidence about maintaining recording through a power interruption."},
+    {"id":"mount","split":"held-out","query":"bracket","root":"clearance","intent":"Find the physical modification that provided enclosure clearance."}
+  ]
+}

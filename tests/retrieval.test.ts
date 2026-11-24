@@ -647,3 +647,171 @@ test("versioned embedding foundation rejects disabled models, stale fingerprints
     [version],
   );
 });
+
+test("retrieval-v2 permission checks and independently labeled comparison", async (t) => {
+  const suite = JSON.parse(
+    await readFile(
+      new URL("../docs/evaluation/retrieval-v2.json", import.meta.url),
+      "utf8",
+    ),
+  ) as {
+    version: string;
+    documents: Record<string, [string, string]>;
+    edges: [string, string][];
+    cases: {
+      id: string;
+      split: string;
+      query: string;
+      root: string;
+      intent: string;
+    }[];
+  };
+  const owner = await user(),
+    reader = await user();
+  const ws = await req(owner, "POST", "/v1/workspaces", {
+    name: suite.version,
+  });
+  assert.equal(ws.statusCode, 201, ws.body);
+  const workspaceId = ws.json().id,
+    path = "/v1/workspaces/" + workspaceId;
+  await admin.query(
+    "INSERT INTO memberships VALUES($1,$2,ARRAY['member'],NULL)",
+    [workspaceId, reader.id],
+  );
+  const pins: Record<string, { id: string; revision: number }> = {};
+  for (const [key, [title, body]] of Object.entries(suite.documents)) {
+    const created = await req(owner, "POST", path + "/objects", {
+      type: "observation",
+      schema_version: 1,
+      content: {
+        title,
+        body,
+        language: "en",
+        source_refs: [],
+        context: "Synthetic instrument log",
+        observed_at: null,
+      },
+    });
+    assert.equal(created.statusCode, 201, created.body);
+    const { id, revision, etag } = created.json();
+    const published = await req(
+      owner,
+      "POST",
+      path + "/objects/" + id + "/publish",
+      { revision, confirmation: true },
+      etag,
+    );
+    assert.equal(published.statusCode, 200, published.body);
+    pins[key] = { id, revision: published.json().revision };
+  }
+  for (const [from, to] of suite.edges) {
+    const edge = await req(owner, "POST", path + "/edges", {
+      type: "relevant_to",
+      from: pins[from],
+      to: pins[to],
+      rationale: "Related instrument log entries",
+    });
+    assert.equal(edge.statusCode, 201, edge.body);
+  }
+  await worker.query("SELECT rebuild_search_batch($1)", [workspaceId]);
+  const modes = ["lexical", "lexical,graph"];
+  const search = (
+    actor: User,
+    row: (typeof suite.cases)[number],
+    channels: string,
+  ) =>
+    req(
+      actor,
+      "GET",
+      path +
+        "/search?" +
+        new URLSearchParams({
+          q: row.query,
+          root_id: pins[row.root].id,
+          channels,
+        }),
+    );
+  for (const mode of modes) {
+    const visible = await search(reader, suite.cases[0], mode);
+    assert.equal(visible.statusCode, 200, visible.body);
+    assert.equal(visible.json().index_state, "ready");
+    assert.ok(
+      visible
+        .json()
+        .items.some((item: { id: string }) => item.id === pins.offset.id),
+    );
+  }
+  await admin.query(
+    "UPDATE memberships SET revoked_at=now() WHERE workspace_id=$1 AND user_id=$2",
+    [workspaceId, reader.id],
+  );
+  for (const mode of modes)
+    assert.equal((await search(reader, suite.cases[0], mode)).statusCode, 404);
+  const labelsPath = process.env.RETRIEVAL_V2_LABELS;
+  if (!labelsPath) {
+    t.diagnostic(
+      "retrieval-v2: revocation passed for both modes. Quality comparison pending independent labels.",
+    );
+    return;
+  }
+  const labels = JSON.parse(await readFile(labelsPath, "utf8"));
+  assert.equal(labels.version, suite.version);
+  assert.ok(typeof labels.reviewer === "string" && labels.reviewer.trim());
+  assert.deepEqual(
+    Object.keys(labels.relevant).sort(),
+    suite.cases.map((row) => row.id).sort(),
+  );
+  const keys = new Map(Object.entries(pins).map(([key, pin]) => [pin.id, key]));
+  for (const row of suite.cases) {
+    const relevant: string[] = labels.relevant[row.id];
+    assert.ok(
+      Array.isArray(relevant) &&
+        relevant.length &&
+        new Set(relevant).size === relevant.length &&
+        relevant.every((key) => Object.hasOwn(pins, key)),
+    );
+    const rankings: string[][] = [];
+    for (const mode of modes) {
+      const response = await search(owner, row, mode);
+      assert.equal(response.statusCode, 200, response.body);
+      assert.equal(response.json().index_state, "ready");
+      rankings.push(
+        response
+          .json()
+          .items.slice(0, 3)
+          .map((item: { id: string }) => {
+            const key = keys.get(item.id);
+            assert.ok(key);
+            return key;
+          }),
+      );
+    }
+    const [lexical, graph] = rankings;
+    const metrics = rankings.map((top) => {
+      const rank = top.findIndex((key) => relevant.includes(key));
+      return {
+        recall:
+          top.filter((key) => relevant.includes(key)).length / relevant.length,
+        reciprocalRank: rank < 0 ? 0 : 1 / (rank + 1),
+      };
+    });
+    t.diagnostic(
+      JSON.stringify({
+        version: suite.version,
+        case: row.id,
+        split: row.split,
+        cutoff: 3,
+        lexical,
+        lexicalGraph: graph,
+        lexicalMetrics: metrics[0],
+        lexicalGraphMetrics: metrics[1],
+        gained: relevant.filter(
+          (key) => graph.includes(key) && !lexical.includes(key),
+        ),
+        lost: relevant.filter(
+          (key) => lexical.includes(key) && !graph.includes(key),
+        ),
+      }),
+    );
+  }
+});
